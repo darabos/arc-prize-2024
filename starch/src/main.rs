@@ -139,16 +139,16 @@ mod common {
         }
         tasks
     }
+    #[derive(Clone, PartialEq)]
+    pub struct Vec2 {
+        pub x: i32,
+        pub y: i32,
+    }
 
     #[derive(Clone)]
     pub struct Shape {
         pub color: i32,
-        pub cells: Vec<(i32, i32)>,
-    }
-
-    pub struct Vec2 {
-        pub x: i32,
-        pub y: i32,
+        pub cells: Vec<Vec2>,
     }
 
     pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
@@ -172,11 +172,14 @@ mod utils {
                 if color == 0 {
                     continue;
                 }
-                let mut cells = vec![(x as i32, y as i32)];
+                let mut cells = vec![Vec2 {
+                    x: x as i32,
+                    y: y as i32,
+                }];
                 visited[y][x] = true;
                 let mut i = 0;
                 while i < cells.len() {
-                    let (x, y) = cells[i];
+                    let Vec2 { x, y } = cells[i];
                     for dir in &DIRECTIONS {
                         let nx = x + dir.x;
                         let ny = y + dir.y;
@@ -194,7 +197,7 @@ mod utils {
                             continue;
                         }
                         visited[ny as usize][nx as usize] = true;
-                        cells.push((nx, ny));
+                        cells.push(Vec2 { x: nx, y: ny });
                     }
                     i += 1;
                 }
@@ -220,7 +223,10 @@ mod utils {
                 if color == 0 {
                     continue;
                 }
-                colorsets[color as usize].cells.push((x as i32, y as i32));
+                colorsets[color as usize].cells.push(Vec2 {
+                    x: x as i32,
+                    y: y as i32,
+                });
             }
         }
         // Set color attribute.
@@ -235,7 +241,7 @@ mod utils {
         colorsets
     }
 
-    pub fn shape_by_color(shapes: &Vec<Shape>, color: i32) -> Option<&Shape> {
+    pub fn shape_by_color(shapes: &[Shape], color: i32) -> Option<&Shape> {
         for shape in shapes {
             if shape.color == color {
                 return Some(shape);
@@ -256,7 +262,7 @@ mod utils {
         let mut left = std::i32::MAX;
         let mut bottom = std::i32::MIN;
         let mut right = std::i32::MIN;
-        for (x, y) in &shape.cells {
+        for Vec2 { x, y } in &shape.cells {
             top = top.min(*y);
             left = left.min(*x);
             bottom = bottom.max(*y);
@@ -281,8 +287,8 @@ mod utils {
             return false;
         }
         // Slow check by pixel.
-        for (x, y) in &a.cells {
-            if b.cells.contains(&(*x, *y)) {
+        for Vec2 { x, y } in &a.cells {
+            if b.cells.contains(&Vec2 { x: *x, y: *y }) {
                 return true;
             }
         }
@@ -293,7 +299,10 @@ mod utils {
         let cells = shape
             .cells
             .iter()
-            .map(|(x, y)| (*x + vector.x, *y + vector.y))
+            .map(|Vec2 { x, y }| Vec2 {
+                x: *x + vector.x,
+                y: *y + vector.y,
+            })
             .collect();
         Shape {
             color: shape.color,
@@ -303,7 +312,7 @@ mod utils {
 
     pub fn paint_shape(image: &Image, shape: &Shape, color: i32) -> Image {
         let mut new_image = image.clone();
-        for (x, y) in &shape.cells {
+        for Vec2 { x, y } in &shape.cells {
             new_image[*y as usize][*x as usize] = color;
         }
         new_image
@@ -410,7 +419,7 @@ pub fn sort_shapes_by_size(s: &mut SolverState, i: usize) {
     *shapes = utils::sort_shapes_by_size(shapes.clone());
 }
 
-fn remap_colors(image: &mut Image, mapping: &Vec<i32>) {
+fn remap_colors(image: &mut Image, mapping: &[i32]) {
     for row in image {
         for cell in row {
             let c = mapping[*cell as usize];
@@ -431,6 +440,7 @@ fn remap_colors_by_shapes(s: &mut SolverState, i: usize) {
         shape.color = i as i32 + 1;
     }
     remap_colors(&mut s.images[i], &mapping);
+    remap_colors(&mut s.output_images[i], &mapping);
     if s.color_mapping.is_none() {
         s.color_mapping = Some(vec![vec![]; s.images.len()]);
     }
@@ -446,22 +456,19 @@ fn unmap_colors(s: &mut SolverState, i: usize) {
         }
     }
     remap_colors(&mut s.images[i], &reverse_mapping);
+    remap_colors(&mut s.output_images[i], &reverse_mapping);
 }
 
 /// Returns the total number of non-zero pixels in the boxes of the given radius
 /// around the dots.
 fn measure_boxes_with_radius(image: &Image, dots: &Shape, radius: i32) -> usize {
     let mut count = 0;
-    for (x, y) in &dots.cells {
+    for Vec2 { x, y } in &dots.cells {
         for dx in -radius..=radius {
             for dy in -radius..=radius {
                 let nx = x + dx;
                 let ny = y + dy;
-                if nx < 0
-                    || ny < 0
-                    || nx >= image[0].len() as i32
-                    || ny >= image.len() as i32
-                {
+                if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
                     continue;
                 }
                 if image[ny as usize][nx as usize] != 0 {
@@ -473,7 +480,25 @@ fn measure_boxes_with_radius(image: &Image, dots: &Shape, radius: i32) -> usize 
     count
 }
 
-fn find_pattern_radius(images: &Vec<Image>, dots: &Vec<Shape>) -> i32 {
+/// Pixels with their relative coordinates and color.
+type Pattern = Vec<(Vec2, i32)>;
+
+fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Pattern {
+    let mut pattern = vec![];
+    for dx in -radius..=radius {
+        for dy in -radius..=radius {
+            let nx = dot.x + dx;
+            let ny = dot.y + dy;
+            if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+                continue;
+            }
+            pattern.push((Vec2 { x: dx, y: dy }, image[ny as usize][nx as usize]));
+        }
+    }
+    pattern
+}
+
+fn find_pattern_around(images: &[Image], dots: &[Shape]) -> Pattern {
     let mut radius = 0;
     let mut last_measure = 0;
     loop {
@@ -487,14 +512,34 @@ fn find_pattern_radius(images: &Vec<Image>, dots: &Vec<Shape>) -> i32 {
         last_measure = measure;
         radius += 1;
     }
-    radius
+    // TODO: Instead of just looking at the measure, we should look at the pattern.
+    get_pattern_around(&images[0], &dots[0].cells[0], radius)
+}
+
+fn draw_pattern_at(image: &mut Image, dot: &Vec2, pattern: &Pattern) {
+    for (Vec2 { x, y }, color) in pattern {
+        let nx = dot.x + x;
+        let ny = dot.y + y;
+        if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+            continue;
+        }
+        image[ny as usize][nx as usize] = *color;
+    }
 }
 
 fn grow_flowers(s: &mut SolverState) {
     let shapes = &s.shapes.as_ref().expect("must have shapes");
-    let dots = &shapes.iter().map(|shapes| shapes[0].clone()).collect();
-    let input_radius = find_pattern_radius(&s.images[..s.task.train.len()], &dots);
-    let output_radius = find_pattern_radius(&s.task, &dots);
+    let dots: Vec<Shape> = shapes.iter().map(|shapes| shapes[0].clone()).collect();
+    // let input_pattern = find_pattern_around(&s.images[..s.task.train.len()], &dots);
+    let output_pattern = find_pattern_around(&s.output_images, &dots);
+    // TODO: Instead of growing each dot, we should filter by the input_pattern.
+    s.apply(|s: &mut SolverState, i: usize| {
+        let shapes = &s.shapes.as_ref().expect("must have shapes");
+        let dots = &shapes[i][0];
+        for dot in dots.cells.iter() {
+            draw_pattern_at(&mut s.images[i], dot, &output_pattern);
+        }
+    })
 }
 
 pub fn solve_example_7(example: &Example) -> Image {
@@ -509,6 +554,7 @@ pub fn solve_example_7(example: &Example) -> Image {
 pub struct SolverState {
     pub task: Task,
     pub images: Vec<Image>,
+    pub output_images: Vec<Image>,
     pub shapes: Option<Vec<Vec<Shape>>>,
     pub colorsets: Option<Vec<Vec<Shape>>>,
     pub dots: Option<Vec<Vec<Shape>>>,
@@ -523,9 +569,16 @@ impl SolverState {
             .iter()
             .map(|example| example.input.clone())
             .collect();
+        let output_images = task
+            .train
+            .iter()
+            .map(|example| example.output.clone())
+            .collect();
+
         SolverState {
             task: task.clone(),
             images,
+            output_images,
             shapes: None,
             colorsets: None,
             dots: None,
@@ -534,7 +587,10 @@ impl SolverState {
         }
     }
 
-    fn apply(&mut self, f: fn(&mut SolverState, usize)) {
+    fn apply<F>(&mut self, f: F)
+    where
+        F: Fn(&mut SolverState, usize),
+    {
         for i in 0..self.images.len() {
             f(self, i);
         }
@@ -568,6 +624,7 @@ fn main() {
     // let name = "05f2a901"; // 7
     let name = "0962bcdd"; // 11
     let task = tasks.get(name).expect("Should have been a task");
+    print_task(task);
     let solutions = solve_example_11(task);
     for s in solutions {
         print_example(&s);
