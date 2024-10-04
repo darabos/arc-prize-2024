@@ -2,7 +2,7 @@ use colored::Colorize;
 use serde_json;
 use std::fs;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Task {
     pub train: Vec<Example>,
     pub test: Vec<Example>,
@@ -353,7 +353,7 @@ pub fn move_shape_to_shape_in_direction(
 }
 
 // Moves the first shape in a cardinal direction until it touches the second shape.
-pub fn move_shape_to_shape(image: &Image, to_move: &Shape, move_to: &Shape) -> Image {
+pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Shape) -> Image {
     // Find the moving direction.
     let to_move_box = bounding_box(to_move);
     let move_to_box = bounding_box(move_to);
@@ -407,13 +407,45 @@ pub fn sort_shapes_by_size(s: &mut SolverState, i: usize) {
     *shapes = sort_these_shapes_by_size(shapes.clone());
 }
 
-fn remap_colors(image: &mut Image, mapping: &[i32]) {
+fn remap_colors_in_image(image: &mut Image, mapping: &[i32]) {
     for row in image {
         for cell in row {
             let c = mapping[*cell as usize];
             if c != -1 {
                 *cell = c;
             }
+        }
+    }
+}
+
+fn remap_colors(s: &mut SolverState, i: usize, mapping: &[i32]) {
+    remap_colors_in_image(&mut s.images[i], mapping);
+    if i < s.output_images.len() {
+        remap_colors_in_image(&mut s.output_images[i], mapping);
+    }
+    if i == 1 {
+        for j in 0..s.used_colors.len() {
+            s.used_colors[j] = mapping[s.used_colors[j] as usize];
+        }
+    }
+    if let Some(colorsets) = &mut s.colorsets {
+        for shape in colorsets[i].iter_mut() {
+            shape.color = mapping[shape.color as usize];
+        }
+    }
+    if let Some(shapes) = &mut s.shapes {
+        for shape in shapes[i].iter_mut() {
+            shape.color = mapping[shape.color as usize];
+        }
+    }
+    if let Some(saved_shapes) = &mut s.saved_shapes {
+        for shape in saved_shapes[i].iter_mut() {
+            shape.color = mapping[shape.color as usize];
+        }
+    }
+    if let Some(dots) = &mut s.dots {
+        for shape in dots[i].iter_mut() {
+            shape.color = mapping[shape.color as usize];
         }
     }
 }
@@ -427,8 +459,7 @@ fn remap_colors_by_shapes(s: &mut SolverState, i: usize) {
         mapping[shape.color as usize] = i as i32 + 1;
         shape.color = i as i32 + 1;
     }
-    remap_colors(&mut s.images[i], &mapping);
-    remap_colors(&mut s.output_images[i], &mapping);
+    remap_colors(s, i, &mapping);
     if s.color_mapping.is_none() {
         s.color_mapping = Some(vec![vec![]; s.images.len()]);
     }
@@ -443,8 +474,10 @@ fn unmap_colors(s: &mut SolverState, i: usize) {
             reverse_mapping[c as usize] = i as i32;
         }
     }
-    remap_colors(&mut s.images[i], &reverse_mapping);
-    remap_colors(&mut s.output_images[i], &reverse_mapping);
+    remap_colors(s, i, &reverse_mapping);
+    if i == s.images.len() - 1 {
+        s.color_mapping = None;
+    }
 }
 
 /// Returns the total number of non-zero pixels in the boxes of the given radius
@@ -530,31 +563,49 @@ fn grow_flowers(s: &mut SolverState) {
     })
 }
 
-pub fn solve_example_7(example: &Example) -> Image {
-    let shapes = find_shapes_in_image(&example.input);
-    let red = shape_by_color(&shapes, 8).expect("Should have been a shape");
-    let blue = shape_by_color(&shapes, 2).expect("Should have been a shape");
-    move_shape_to_shape(&example.input, &blue, &red)
+fn save_shapes(s: &mut SolverState) {
+    s.saved_shapes = s.shapes.clone();
+}
+
+fn get_used_colors(images: &[Image]) -> Vec<i32> {
+    let mut is_used = vec![false; COLORS.len()];
+    for image in images {
+        for row in image {
+            for cell in row {
+                is_used[*cell as usize] = true;
+            }
+        }
+    }
+    let mut used_colors = vec![];
+    for (i, &used) in is_used.iter().enumerate() {
+        if used && i != 0 {
+            used_colors.push(i as i32);
+        }
+    }
+    used_colors
 }
 
 /// Tracks information while applying operations on all examples at once.
 /// Most fields are vectors storing information for each example.
+#[derive(Default)]
 pub struct SolverState {
     pub task: Task,
     pub images: Vec<Image>,
     pub output_images: Vec<Image>,
+    pub used_colors: Vec<i32>,
     pub shapes: Option<Vec<Vec<Shape>>>,
+    pub saved_shapes: Option<Vec<Vec<Shape>>>,
     pub colorsets: Option<Vec<Vec<Shape>>>,
     pub dots: Option<Vec<Vec<Shape>>>,
     pub color_mapping: Option<Vec<Vec<i32>>>,
-    pub flower: Option<Shape>,
 }
 
 impl SolverState {
     fn new(task: &Task) -> Self {
-        let images = task
+        let images: Vec<Image> = task
             .train
             .iter()
+            .chain(task.test.iter())
             .map(|example| example.input.clone())
             .collect();
         let output_images = task
@@ -562,16 +613,13 @@ impl SolverState {
             .iter()
             .map(|example| example.output.clone())
             .collect();
-
+        let used_colors = get_used_colors(&images);
         SolverState {
             task: task.clone(),
             images,
             output_images,
-            shapes: None,
-            colorsets: None,
-            dots: None,
-            color_mapping: None,
-            flower: None,
+            used_colors,
+            ..Default::default()
         }
     }
 
@@ -587,13 +635,65 @@ impl SolverState {
     fn get_results(&self) -> Vec<Example> {
         self.images
             .iter()
-            .zip(self.task.train.iter())
+            .zip(self.task.train.iter().chain(self.task.test.iter()))
             .map(|(image, example)| Example {
                 input: example.input.clone(),
                 output: image.clone(),
             })
             .collect()
     }
+}
+
+// pub fn solve_example_7(task: &Task) -> Vec<Example> {
+//     let mut state = SolverState::new(task);
+//     state.apply(find_shapes);
+//     state.apply(|s, i| {
+//         let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
+//         let red = shape_by_color(&shapes, 8).expect("Should have been a shape");
+//         let blue = shape_by_color(&shapes, 2).expect("Should have been a shape");
+//         s.images[i] = move_shape_to_shape(&s.images[i], &blue, &red);
+//     });
+//     state.get_results()
+// }
+
+fn rotate_used_colors(s: &mut SolverState) {
+    let first_color = s.used_colors[0];
+    let n = s.used_colors.len();
+    for i in 0..n - 1 {
+        s.used_colors[i] = s.used_colors[i + 1];
+    }
+    s.used_colors[n - 1] = first_color;
+}
+
+fn pick_shape_by_color(s: &mut SolverState, i: usize) {
+    let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
+    let shape = shape_by_color(&shapes, s.used_colors[0]).expect("Should have been a shape");
+    s.shapes.as_mut().unwrap()[i] = vec![shape.clone()];
+}
+
+fn move_shape_to_saved_shape(s: &mut SolverState, i: usize) {
+    let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
+    let saved_shapes = &s.saved_shapes.as_ref().expect("must have saved shapes")[i];
+    s.images[i] = move_shape_to_shape_in_image(&s.images[i], &shapes[0], &saved_shapes[0]);
+}
+
+fn solve_example_7(task: &Task) -> Vec<Example> {
+    let mut state = SolverState::new(task);
+    state.apply(find_colorsets);
+    use_colorsets_as_shapes(&mut state);
+    state.apply(sort_shapes_by_size);
+    state.apply(remap_colors_by_shapes);
+    state.apply(find_shapes);
+    rotate_used_colors(&mut state);
+    state.apply(pick_shape_by_color);
+    save_shapes(&mut state);
+    rotate_used_colors(&mut state);
+    // TODO: We shouldn't need to find shapes again!
+    state.apply(find_shapes);
+    state.apply(pick_shape_by_color);
+    state.apply(move_shape_to_saved_shape);
+    state.apply(unmap_colors);
+    state.get_results()
 }
 
 fn solve_example_11(task: &Task) -> Vec<Example> {
@@ -609,11 +709,11 @@ fn solve_example_11(task: &Task) -> Vec<Example> {
 
 fn main() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
-    // let name = "05f2a901"; // 7
-    let name = "0962bcdd"; // 11
+    let name = "05f2a901"; // 7
+    // let name = "0962bcdd"; // 11
     let task = tasks.get(name).expect("Should have been a task");
     print_task(task);
-    let solutions = solve_example_11(task);
+    let solutions = solve_example_7(task);
     for s in solutions {
         print_example(&s);
     }
