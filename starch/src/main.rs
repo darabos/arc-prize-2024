@@ -1,354 +1,331 @@
-mod common {
-    use colored::Colorize;
-    use serde_json;
-    use std::fs;
+use colored::Colorize;
+use serde_json;
+use std::fs;
 
-    #[derive(Clone)]
-    pub struct Task {
-        pub train: Vec<Example>,
-        pub test: Vec<Example>,
-    }
-
-    pub type Image = Vec<Vec<i32>>;
-    #[derive(Clone)]
-    pub struct Example {
-        pub input: Image,
-        pub output: Image,
-    }
-
-    pub type Map<K, V> = std::collections::HashMap<K, V>;
-
-    pub fn parse_example(example: &serde_json::Value) -> Example {
-        let input = example["input"]
-            .as_array()
-            .expect("Should have been an array");
-        let input = input
-            .iter()
-            .map(|row| {
-                row.as_array()
-                    .expect("Should have been an array")
-                    .iter()
-                    .map(|cell| cell.as_i64().expect("Should have been an integer") as i32)
-                    .collect()
-            })
-            .collect();
-        if example["output"].is_null() {
-            return Example {
-                input,
-                output: vec![],
-            };
-        }
-        let output = example["output"]
-            .as_array()
-            .expect("Should have been an array");
-        let output = output
-            .iter()
-            .map(|row| {
-                row.as_array()
-                    .expect("Should have been an array")
-                    .iter()
-                    .map(|cell| cell.as_i64().expect("Should have been an integer") as i32)
-                    .collect()
-            })
-            .collect();
-        Example { input, output }
-    }
-    use colored::Color;
-    pub const COLORS: [Color; 12] = [
-        Color::BrightWhite,
-        Color::Black,
-        Color::Blue,
-        Color::Red,
-        Color::Green,
-        Color::Yellow,
-        Color::TrueColor {
-            r: 128,
-            g: 0,
-            b: 128,
-        },
-        Color::TrueColor {
-            r: 255,
-            g: 165,
-            b: 0,
-        },
-        Color::TrueColor {
-            r: 165,
-            g: 42,
-            b: 42,
-        },
-        Color::Magenta,
-        Color::White,
-        Color::Cyan,
-    ];
-
-    pub fn print_color(color: i32) {
-        if color == 0 {
-            print!(" ");
-        } else {
-            print!("{}", "█".color(COLORS[color as usize]));
-        }
-    }
-
-    pub fn print_image(image: &Image) {
-        for row in image {
-            for cell in row {
-                print_color(*cell);
-            }
-            println!();
-        }
-    }
-
-    pub fn print_example(example: &Example) {
-        println!("Input:");
-        print_image(&example.input);
-        if !example.output.is_empty() {
-            println!("Output:");
-            print_image(&example.output);
-        }
-    }
-
-    pub fn parse_task(task: &serde_json::Value) -> Task {
-        let train = task["train"].as_array().expect("Should have been an array");
-        let train = train.iter().map(|example| parse_example(example)).collect();
-        let test = task["test"].as_array().expect("Should have been an array");
-        let test = test.iter().map(|example| parse_example(example)).collect();
-        Task { train, test }
-    }
-
-    #[allow(dead_code)]
-    pub fn print_task(task: &Task) {
-        println!("Train:");
-        for example in &task.train {
-            print_example(example);
-        }
-        println!("Test:");
-        for example in &task.test {
-            print_example(example);
-        }
-    }
-
-    pub fn read_arc_file(file_path: &str) -> Map<String, Task> {
-        let contents =
-            fs::read_to_string(file_path).expect("Should have been able to read the file");
-        let data: serde_json::Value =
-            serde_json::from_str(&contents).expect("Should have been able to parse the json");
-        let data = data.as_object().expect("Should have been an object");
-        let mut tasks = Map::new();
-        for (key, task) in data {
-            tasks.insert(key.clone(), parse_task(task));
-        }
-        tasks
-    }
-    #[derive(Clone, PartialEq)]
-    pub struct Vec2 {
-        pub x: i32,
-        pub y: i32,
-    }
-
-    #[derive(Clone)]
-    pub struct Shape {
-        pub color: i32,
-        pub cells: Vec<Vec2>,
-    }
-
-    pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
-    pub const DOWN: Vec2 = Vec2 { x: 0, y: 1 };
-    pub const LEFT: Vec2 = Vec2 { x: -1, y: 0 };
-    pub const RIGHT: Vec2 = Vec2 { x: 1, y: 0 };
-    pub const DIRECTIONS: [Vec2; 4] = [UP, DOWN, LEFT, RIGHT];
+#[derive(Clone)]
+pub struct Task {
+    pub train: Vec<Example>,
+    pub test: Vec<Example>,
 }
 
-mod utils {
-    use super::common::*;
-    pub fn find_shapes(image: &Image) -> Vec<Shape> {
-        let mut shapes = vec![];
-        let mut visited = vec![vec![false; image[0].len()]; image.len()];
-        for y in 0..image.len() {
-            for x in 0..image[0].len() {
-                if visited[y][x] {
-                    continue;
-                }
-                let color = image[y][x];
-                if color == 0 {
-                    continue;
-                }
-                let mut cells = vec![Vec2 {
-                    x: x as i32,
-                    y: y as i32,
-                }];
-                visited[y][x] = true;
-                let mut i = 0;
-                while i < cells.len() {
-                    let Vec2 { x, y } = cells[i];
-                    for dir in &DIRECTIONS {
-                        let nx = x + dir.x;
-                        let ny = y + dir.y;
-                        if nx < 0
-                            || ny < 0
-                            || nx >= image[0].len() as i32
-                            || ny >= image.len() as i32
-                        {
-                            continue;
-                        }
-                        if visited[ny as usize][nx as usize] {
-                            continue;
-                        }
-                        if image[ny as usize][nx as usize] != color {
-                            continue;
-                        }
-                        visited[ny as usize][nx as usize] = true;
-                        cells.push(Vec2 { x: nx, y: ny });
+pub type Image = Vec<Vec<i32>>;
+#[derive(Clone)]
+pub struct Example {
+    pub input: Image,
+    pub output: Image,
+}
+
+pub type Map<K, V> = std::collections::HashMap<K, V>;
+
+pub fn parse_example(example: &serde_json::Value) -> Example {
+    let input = example["input"]
+        .as_array()
+        .expect("Should have been an array");
+    let input = input
+        .iter()
+        .map(|row| {
+            row.as_array()
+                .expect("Should have been an array")
+                .iter()
+                .map(|cell| cell.as_i64().expect("Should have been an integer") as i32)
+                .collect()
+        })
+        .collect();
+    if example["output"].is_null() {
+        return Example {
+            input,
+            output: vec![],
+        };
+    }
+    let output = example["output"]
+        .as_array()
+        .expect("Should have been an array");
+    let output = output
+        .iter()
+        .map(|row| {
+            row.as_array()
+                .expect("Should have been an array")
+                .iter()
+                .map(|cell| cell.as_i64().expect("Should have been an integer") as i32)
+                .collect()
+        })
+        .collect();
+    Example { input, output }
+}
+use colored::Color;
+pub const COLORS: [Color; 12] = [
+    Color::BrightWhite,
+    Color::Black,
+    Color::Blue,
+    Color::Red,
+    Color::Green,
+    Color::Yellow,
+    Color::TrueColor {
+        r: 128,
+        g: 0,
+        b: 128,
+    },
+    Color::TrueColor {
+        r: 255,
+        g: 165,
+        b: 0,
+    },
+    Color::TrueColor {
+        r: 165,
+        g: 42,
+        b: 42,
+    },
+    Color::Magenta,
+    Color::White,
+    Color::Cyan,
+];
+
+pub fn print_color(color: i32) {
+    if color == 0 {
+        print!(" ");
+    } else {
+        print!("{}", "█".color(COLORS[color as usize]));
+    }
+}
+
+pub fn print_image(image: &Image) {
+    for row in image {
+        for cell in row {
+            print_color(*cell);
+        }
+        println!();
+    }
+}
+
+pub fn print_example(example: &Example) {
+    println!("Input:");
+    print_image(&example.input);
+    if !example.output.is_empty() {
+        println!("Output:");
+        print_image(&example.output);
+    }
+}
+
+pub fn parse_task(task: &serde_json::Value) -> Task {
+    let train = task["train"].as_array().expect("Should have been an array");
+    let train = train.iter().map(|example| parse_example(example)).collect();
+    let test = task["test"].as_array().expect("Should have been an array");
+    let test = test.iter().map(|example| parse_example(example)).collect();
+    Task { train, test }
+}
+
+#[allow(dead_code)]
+pub fn print_task(task: &Task) {
+    println!("Train:");
+    for example in &task.train {
+        print_example(example);
+    }
+    println!("Test:");
+    for example in &task.test {
+        print_example(example);
+    }
+}
+
+pub fn read_arc_file(file_path: &str) -> Map<String, Task> {
+    let contents = fs::read_to_string(file_path).expect("Should have been able to read the file");
+    let data: serde_json::Value =
+        serde_json::from_str(&contents).expect("Should have been able to parse the json");
+    let data = data.as_object().expect("Should have been an object");
+    let mut tasks = Map::new();
+    for (key, task) in data {
+        tasks.insert(key.clone(), parse_task(task));
+    }
+    tasks
+}
+#[derive(Clone, PartialEq)]
+pub struct Vec2 {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Clone)]
+pub struct Shape {
+    pub color: i32,
+    pub cells: Vec<Vec2>,
+}
+
+pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
+pub const DOWN: Vec2 = Vec2 { x: 0, y: 1 };
+pub const LEFT: Vec2 = Vec2 { x: -1, y: 0 };
+pub const RIGHT: Vec2 = Vec2 { x: 1, y: 0 };
+pub const DIRECTIONS: [Vec2; 4] = [UP, DOWN, LEFT, RIGHT];
+
+pub fn find_shapes_in_image(image: &Image) -> Vec<Shape> {
+    let mut shapes = vec![];
+    let mut visited = vec![vec![false; image[0].len()]; image.len()];
+    for y in 0..image.len() {
+        for x in 0..image[0].len() {
+            if visited[y][x] {
+                continue;
+            }
+            let color = image[y][x];
+            if color == 0 {
+                continue;
+            }
+            let mut cells = vec![Vec2 {
+                x: x as i32,
+                y: y as i32,
+            }];
+            visited[y][x] = true;
+            let mut i = 0;
+            while i < cells.len() {
+                let Vec2 { x, y } = cells[i];
+                for dir in &DIRECTIONS {
+                    let nx = x + dir.x;
+                    let ny = y + dir.y;
+                    if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+                        continue;
                     }
-                    i += 1;
+                    if visited[ny as usize][nx as usize] {
+                        continue;
+                    }
+                    if image[ny as usize][nx as usize] != color {
+                        continue;
+                    }
+                    visited[ny as usize][nx as usize] = true;
+                    cells.push(Vec2 { x: nx, y: ny });
                 }
-                shapes.push(Shape { color, cells });
+                i += 1;
             }
-        }
-        shapes
-    }
-
-    /// Finds "colorsets" in the image. A colorset is a set of all pixels with the same color.
-    pub fn find_colorsets(image: &Image) -> Vec<Shape> {
-        // Create blank colorset for each color.
-        let mut colorsets = vec![
-            Shape {
-                color: 0,
-                cells: vec![]
-            };
-            COLORS.len()
-        ];
-        for y in 0..image.len() {
-            for x in 0..image[0].len() {
-                let color = image[y][x];
-                if color == 0 {
-                    continue;
-                }
-                colorsets[color as usize].cells.push(Vec2 {
-                    x: x as i32,
-                    y: y as i32,
-                });
-            }
-        }
-        // Set color attribute.
-        for (color, colorset) in colorsets.iter_mut().enumerate() {
-            colorset.color = color as i32;
-        }
-        // Filter non-empty colorsets.
-        colorsets = colorsets
-            .into_iter()
-            .filter(|colorset| !colorset.cells.is_empty())
-            .collect();
-        colorsets
-    }
-
-    pub fn shape_by_color(shapes: &[Shape], color: i32) -> Option<&Shape> {
-        for shape in shapes {
-            if shape.color == color {
-                return Some(shape);
-            }
-        }
-        None
-    }
-
-    pub struct Rect {
-        pub top: i32,
-        pub left: i32,
-        pub bottom: i32,
-        pub right: i32,
-    }
-
-    pub fn bounding_box(shape: &Shape) -> Rect {
-        let mut top = std::i32::MAX;
-        let mut left = std::i32::MAX;
-        let mut bottom = std::i32::MIN;
-        let mut right = std::i32::MIN;
-        for Vec2 { x, y } in &shape.cells {
-            top = top.min(*y);
-            left = left.min(*x);
-            bottom = bottom.max(*y);
-            right = right.max(*x);
-        }
-        Rect {
-            top,
-            left,
-            bottom,
-            right,
+            shapes.push(Shape { color, cells });
         }
     }
+    shapes
+}
 
-    pub fn do_shapes_overlap(a: &Shape, b: &Shape) -> bool {
-        // Quick check by bounding box.
-        let a_box = bounding_box(a);
-        let b_box = bounding_box(b);
-        if a_box.right < b_box.left || a_box.left > b_box.right {
-            return false;
-        }
-        if a_box.bottom < b_box.top || a_box.top > b_box.bottom {
-            return false;
-        }
-        // Slow check by pixel.
-        for Vec2 { x, y } in &a.cells {
-            if b.cells.contains(&Vec2 { x: *x, y: *y }) {
-                return true;
-            }
-        }
-        false
-    }
-
-    pub fn move_shape(shape: &Shape, vector: Vec2) -> Shape {
-        let cells = shape
-            .cells
-            .iter()
-            .map(|Vec2 { x, y }| Vec2 {
-                x: *x + vector.x,
-                y: *y + vector.y,
-            })
-            .collect();
+/// Finds "colorsets" in the image. A colorset is a set of all pixels with the same color.
+pub fn find_colorsets_in_image(image: &Image) -> Vec<Shape> {
+    // Create blank colorset for each color.
+    let mut colorsets = vec![
         Shape {
-            color: shape.color,
-            cells,
-        }
-    }
-
-    pub fn paint_shape(image: &Image, shape: &Shape, color: i32) -> Image {
-        let mut new_image = image.clone();
-        for Vec2 { x, y } in &shape.cells {
-            new_image[*y as usize][*x as usize] = color;
-        }
-        new_image
-    }
-
-    pub fn remove_shape(image: &Image, shape: &Shape) -> Image {
-        paint_shape(image, shape, 0)
-    }
-    pub fn draw_shape(image: &Image, shape: &Shape) -> Image {
-        paint_shape(image, shape, shape.color)
-    }
-
-    // Moves the first shape pixel by pixel. (Not using bounding boxes.)
-    pub fn move_shape_to_shape_in_direction(
-        image: &Image,
-        to_move: &Shape,
-        move_to: &Shape,
-        dir: Vec2,
-    ) -> Image {
-        // Figure out moving distance.
-        let mut distance = 1;
-        loop {
-            let moved = move_shape(
-                to_move,
-                Vec2 {
-                    x: dir.x * distance,
-                    y: dir.y * distance,
-                },
-            );
-            if do_shapes_overlap(&moved, move_to) {
-                distance -= 1;
-                break;
+            color: 0,
+            cells: vec![]
+        };
+        COLORS.len()
+    ];
+    for y in 0..image.len() {
+        for x in 0..image[0].len() {
+            let color = image[y][x];
+            if color == 0 {
+                continue;
             }
-            distance += 1;
+            colorsets[color as usize].cells.push(Vec2 {
+                x: x as i32,
+                y: y as i32,
+            });
         }
-        let mut new_image = image.clone();
+    }
+    // Set color attribute.
+    for (color, colorset) in colorsets.iter_mut().enumerate() {
+        colorset.color = color as i32;
+    }
+    // Filter non-empty colorsets.
+    colorsets = colorsets
+        .into_iter()
+        .filter(|colorset| !colorset.cells.is_empty())
+        .collect();
+    colorsets
+}
+
+pub fn shape_by_color(shapes: &[Shape], color: i32) -> Option<&Shape> {
+    for shape in shapes {
+        if shape.color == color {
+            return Some(shape);
+        }
+    }
+    None
+}
+
+pub struct Rect {
+    pub top: i32,
+    pub left: i32,
+    pub bottom: i32,
+    pub right: i32,
+}
+
+pub fn bounding_box(shape: &Shape) -> Rect {
+    let mut top = std::i32::MAX;
+    let mut left = std::i32::MAX;
+    let mut bottom = std::i32::MIN;
+    let mut right = std::i32::MIN;
+    for Vec2 { x, y } in &shape.cells {
+        top = top.min(*y);
+        left = left.min(*x);
+        bottom = bottom.max(*y);
+        right = right.max(*x);
+    }
+    Rect {
+        top,
+        left,
+        bottom,
+        right,
+    }
+}
+
+pub fn do_shapes_overlap(a: &Shape, b: &Shape) -> bool {
+    // Quick check by bounding box.
+    let a_box = bounding_box(a);
+    let b_box = bounding_box(b);
+    if a_box.right < b_box.left || a_box.left > b_box.right {
+        return false;
+    }
+    if a_box.bottom < b_box.top || a_box.top > b_box.bottom {
+        return false;
+    }
+    // Slow check by pixel.
+    for Vec2 { x, y } in &a.cells {
+        if b.cells.contains(&Vec2 { x: *x, y: *y }) {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn move_shape(shape: &Shape, vector: Vec2) -> Shape {
+    let cells = shape
+        .cells
+        .iter()
+        .map(|Vec2 { x, y }| Vec2 {
+            x: *x + vector.x,
+            y: *y + vector.y,
+        })
+        .collect();
+    Shape {
+        color: shape.color,
+        cells,
+    }
+}
+
+pub fn paint_shape(image: &Image, shape: &Shape, color: i32) -> Image {
+    let mut new_image = image.clone();
+    for Vec2 { x, y } in &shape.cells {
+        new_image[*y as usize][*x as usize] = color;
+    }
+    new_image
+}
+
+pub fn remove_shape(image: &Image, shape: &Shape) -> Image {
+    paint_shape(image, shape, 0)
+}
+pub fn draw_shape(image: &Image, shape: &Shape) -> Image {
+    paint_shape(image, shape, shape.color)
+}
+
+// Moves the first shape pixel by pixel. (Not using bounding boxes.)
+pub fn move_shape_to_shape_in_direction(
+    image: &Image,
+    to_move: &Shape,
+    move_to: &Shape,
+    dir: Vec2,
+) -> Image {
+    // Figure out moving distance.
+    let mut distance = 1;
+    loop {
         let moved = move_shape(
             to_move,
             Vec2 {
@@ -356,58 +333,69 @@ mod utils {
                 y: dir.y * distance,
             },
         );
-        new_image = remove_shape(&new_image, to_move);
-        new_image = draw_shape(&new_image, &moved);
-        new_image
-    }
-
-    // Moves the first shape in a cardinal direction until it touches the second shape.
-    pub fn move_shape_to_shape(image: &Image, to_move: &Shape, move_to: &Shape) -> Image {
-        // Find the moving direction.
-        let to_move_box = bounding_box(to_move);
-        let move_to_box = bounding_box(move_to);
-        if to_move_box.right < move_to_box.left {
-            return move_shape_to_shape_in_direction(image, to_move, move_to, RIGHT);
+        if do_shapes_overlap(&moved, move_to) {
+            distance -= 1;
+            break;
         }
-        if to_move_box.left > move_to_box.right {
-            return move_shape_to_shape_in_direction(image, to_move, move_to, LEFT);
-        }
-        if to_move_box.bottom < move_to_box.top {
-            return move_shape_to_shape_in_direction(image, to_move, move_to, DOWN);
-        }
-        return move_shape_to_shape_in_direction(image, to_move, move_to, UP);
+        distance += 1;
     }
-
-    #[allow(dead_code)]
-    pub fn smallest(shapes: Vec<Shape>) -> Shape {
-        shapes
-            .iter()
-            .min_by_key(|shape| shape.cells.len())
-            .expect("Should have been a shape")
-            .clone()
-    }
-
-    pub fn sort_shapes_by_size(shapes: Vec<Shape>) -> Vec<Shape> {
-        let mut shapes = shapes;
-        shapes.sort_by_key(|shape| shape.cells.len());
-        shapes
-    }
+    let mut new_image = image.clone();
+    let moved = move_shape(
+        to_move,
+        Vec2 {
+            x: dir.x * distance,
+            y: dir.y * distance,
+        },
+    );
+    new_image = remove_shape(&new_image, to_move);
+    new_image = draw_shape(&new_image, &moved);
+    new_image
 }
 
-use common::*;
+// Moves the first shape in a cardinal direction until it touches the second shape.
+pub fn move_shape_to_shape(image: &Image, to_move: &Shape, move_to: &Shape) -> Image {
+    // Find the moving direction.
+    let to_move_box = bounding_box(to_move);
+    let move_to_box = bounding_box(move_to);
+    if to_move_box.right < move_to_box.left {
+        return move_shape_to_shape_in_direction(image, to_move, move_to, RIGHT);
+    }
+    if to_move_box.left > move_to_box.right {
+        return move_shape_to_shape_in_direction(image, to_move, move_to, LEFT);
+    }
+    if to_move_box.bottom < move_to_box.top {
+        return move_shape_to_shape_in_direction(image, to_move, move_to, DOWN);
+    }
+    return move_shape_to_shape_in_direction(image, to_move, move_to, UP);
+}
+
+#[allow(dead_code)]
+pub fn smallest(shapes: Vec<Shape>) -> Shape {
+    shapes
+        .iter()
+        .min_by_key(|shape| shape.cells.len())
+        .expect("Should have been a shape")
+        .clone()
+}
+
+pub fn sort_these_shapes_by_size(shapes: Vec<Shape>) -> Vec<Shape> {
+    let mut shapes = shapes;
+    shapes.sort_by_key(|shape| shape.cells.len());
+    shapes
+}
 
 pub fn find_shapes(s: &mut SolverState, i: usize) {
     if s.shapes.is_none() {
         s.shapes = Some(vec![vec![]; s.images.len()]);
     }
-    s.shapes.as_mut().unwrap()[i] = utils::find_shapes(&s.images[i]);
+    s.shapes.as_mut().unwrap()[i] = find_shapes_in_image(&s.images[i]);
 }
 
 pub fn find_colorsets(s: &mut SolverState, i: usize) {
     if s.colorsets.is_none() {
         s.colorsets = Some(vec![vec![]; s.images.len()]);
     }
-    s.colorsets.as_mut().unwrap()[i] = utils::find_colorsets(&s.images[i]);
+    s.colorsets.as_mut().unwrap()[i] = find_colorsets_in_image(&s.images[i]);
 }
 
 pub fn use_colorsets_as_shapes(s: &mut SolverState) {
@@ -416,7 +404,7 @@ pub fn use_colorsets_as_shapes(s: &mut SolverState) {
 
 pub fn sort_shapes_by_size(s: &mut SolverState, i: usize) {
     let shapes = &mut s.shapes.as_mut().expect("must have shapes")[i];
-    *shapes = utils::sort_shapes_by_size(shapes.clone());
+    *shapes = sort_these_shapes_by_size(shapes.clone());
 }
 
 fn remap_colors(image: &mut Image, mapping: &[i32]) {
@@ -543,10 +531,10 @@ fn grow_flowers(s: &mut SolverState) {
 }
 
 pub fn solve_example_7(example: &Example) -> Image {
-    let shapes = utils::find_shapes(&example.input);
-    let red = utils::shape_by_color(&shapes, 8).expect("Should have been a shape");
-    let blue = utils::shape_by_color(&shapes, 2).expect("Should have been a shape");
-    utils::move_shape_to_shape(&example.input, &blue, &red)
+    let shapes = find_shapes_in_image(&example.input);
+    let red = shape_by_color(&shapes, 8).expect("Should have been a shape");
+    let blue = shape_by_color(&shapes, 2).expect("Should have been a shape");
+    move_shape_to_shape(&example.input, &blue, &red)
 }
 
 /// Tracks information while applying operations on all examples at once.
