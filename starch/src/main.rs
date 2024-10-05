@@ -15,13 +15,12 @@ pub struct Example {
     pub output: Image,
 }
 
-pub type Map<K, V> = std::collections::HashMap<K, V>;
+use std::collections::HashMap as Map;
 
-pub fn parse_example(example: &serde_json::Value) -> Example {
-    let input = example["input"]
+pub fn parse_image(image: &serde_json::Value) -> Image {
+    image
         .as_array()
-        .expect("Should have been an array");
-    let input = input
+        .expect("Should have been an array")
         .iter()
         .map(|row| {
             row.as_array()
@@ -30,26 +29,18 @@ pub fn parse_example(example: &serde_json::Value) -> Example {
                 .map(|cell| cell.as_i64().expect("Should have been an integer") as i32)
                 .collect()
         })
-        .collect();
+        .collect()
+}
+
+pub fn parse_example(example: &serde_json::Value) -> Example {
+    let input = parse_image(&example["input"]);
     if example["output"].is_null() {
         return Example {
             input,
             output: vec![],
         };
     }
-    let output = example["output"]
-        .as_array()
-        .expect("Should have been an array");
-    let output = output
-        .iter()
-        .map(|row| {
-            row.as_array()
-                .expect("Should have been an array")
-                .iter()
-                .map(|cell| cell.as_i64().expect("Should have been an integer") as i32)
-                .collect()
-        })
-        .collect();
+    let output = parse_image(&example["output"]);
     Example { input, output }
 }
 use colored::Color;
@@ -137,13 +128,31 @@ pub fn read_arc_file(file_path: &str) -> Map<String, Task> {
     }
     tasks
 }
+
+pub fn read_arc_solutions_file(file_path: &str) -> Map<String, Vec<Image>> {
+    let contents = fs::read_to_string(file_path).expect("Should have been able to read the file");
+    let data: serde_json::Value =
+        serde_json::from_str(&contents).expect("Should have been able to parse the json");
+    let data = data.as_object().expect("Should have been an object");
+    let mut tasks = Map::new();
+    for (key, task) in data {
+        let images = task
+            .as_array()
+            .expect("Should have been an array")
+            .iter()
+            .map(|image| parse_image(image))
+            .collect();
+        tasks.insert(key.clone(), images);
+    }
+    tasks
+}
 #[derive(Clone, PartialEq)]
 pub struct Vec2 {
     pub x: i32,
     pub y: i32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Shape {
     pub color: i32,
     pub cells: Vec<Vec2>,
@@ -201,13 +210,7 @@ pub fn find_shapes_in_image(image: &Image) -> Vec<Shape> {
 /// Finds "colorsets" in the image. A colorset is a set of all pixels with the same color.
 pub fn find_colorsets_in_image(image: &Image) -> Vec<Shape> {
     // Create blank colorset for each color.
-    let mut colorsets = vec![
-        Shape {
-            color: 0,
-            cells: vec![]
-        };
-        COLORS.len()
-    ];
+    let mut colorsets = vec![Shape::default(); COLORS.len()];
     for y in 0..image.len() {
         for x in 0..image[0].len() {
             let color = image[y][x];
@@ -423,11 +426,6 @@ fn remap_colors(s: &mut SolverState, i: usize, mapping: &[i32]) {
     if i < s.output_images.len() {
         remap_colors_in_image(&mut s.output_images[i], mapping);
     }
-    if i == 1 {
-        for j in 0..s.used_colors.len() {
-            s.used_colors[j] = mapping[s.used_colors[j] as usize];
-        }
-    }
     if let Some(colorsets) = &mut s.colorsets {
         for shape in colorsets[i].iter_mut() {
             shape.color = mapping[shape.color as usize];
@@ -448,6 +446,9 @@ fn remap_colors(s: &mut SolverState, i: usize, mapping: &[i32]) {
             shape.color = mapping[shape.color as usize];
         }
     }
+    if i == s.images.len() - 1 {
+        s.used_colors = get_used_colors(&s.images);
+    }
 }
 
 /// Renumbers the colors of the image to match the order of the shapes.
@@ -457,7 +458,6 @@ fn remap_colors_by_shapes(s: &mut SolverState, i: usize) {
     let mut mapping = vec![-1; COLORS.len()];
     for (i, shape) in shapes.iter_mut().enumerate() {
         mapping[shape.color as usize] = i as i32 + 1;
-        shape.color = i as i32 + 1;
     }
     remap_colors(s, i, &mapping);
     if s.color_mapping.is_none() {
@@ -563,8 +563,8 @@ fn grow_flowers(s: &mut SolverState) {
     })
 }
 
-fn save_shapes(s: &mut SolverState) {
-    s.saved_shapes = s.shapes.clone();
+fn save_picked_shapes(s: &mut SolverState) {
+    s.saved_shapes = s.picked_shapes.clone();
 }
 
 fn get_used_colors(images: &[Image]) -> Vec<i32> {
@@ -594,6 +594,7 @@ pub struct SolverState {
     pub output_images: Vec<Image>,
     pub used_colors: Vec<i32>,
     pub shapes: Option<Vec<Vec<Shape>>>,
+    pub picked_shapes: Option<Vec<Vec<Shape>>>,
     pub saved_shapes: Option<Vec<Vec<Shape>>>,
     pub colorsets: Option<Vec<Vec<Shape>>>,
     pub dots: Option<Vec<Vec<Shape>>>,
@@ -644,18 +645,6 @@ impl SolverState {
     }
 }
 
-// pub fn solve_example_7(task: &Task) -> Vec<Example> {
-//     let mut state = SolverState::new(task);
-//     state.apply(find_shapes);
-//     state.apply(|s, i| {
-//         let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
-//         let red = shape_by_color(&shapes, 8).expect("Should have been a shape");
-//         let blue = shape_by_color(&shapes, 2).expect("Should have been a shape");
-//         s.images[i] = move_shape_to_shape(&s.images[i], &blue, &red);
-//     });
-//     state.get_results()
-// }
-
 fn rotate_used_colors(s: &mut SolverState) {
     let first_color = s.used_colors[0];
     let n = s.used_colors.len();
@@ -668,30 +657,31 @@ fn rotate_used_colors(s: &mut SolverState) {
 fn pick_shape_by_color(s: &mut SolverState, i: usize) {
     let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
     let shape = shape_by_color(&shapes, s.used_colors[0]).expect("Should have been a shape");
-    s.shapes.as_mut().unwrap()[i] = vec![shape.clone()];
+    if s.picked_shapes.is_none() {
+        s.picked_shapes = Some(vec![vec![]; s.images.len()]);
+    }
+    s.picked_shapes.as_mut().unwrap()[i] = vec![shape.clone()];
 }
 
-fn move_shape_to_saved_shape(s: &mut SolverState, i: usize) {
-    let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
+fn move_picked_shape_to_saved_shape(s: &mut SolverState, i: usize) {
+    let picked_shapes = &s.picked_shapes.as_ref().expect("must have picked shapes")[i];
     let saved_shapes = &s.saved_shapes.as_ref().expect("must have saved shapes")[i];
-    s.images[i] = move_shape_to_shape_in_image(&s.images[i], &shapes[0], &saved_shapes[0]);
+    s.images[i] = move_shape_to_shape_in_image(&s.images[i], &picked_shapes[0], &saved_shapes[0]);
 }
 
 fn solve_example_7(task: &Task) -> Vec<Example> {
     let mut state = SolverState::new(task);
     state.apply(find_colorsets);
     use_colorsets_as_shapes(&mut state);
-    state.apply(sort_shapes_by_size);
     state.apply(remap_colors_by_shapes);
     state.apply(find_shapes);
     rotate_used_colors(&mut state);
     state.apply(pick_shape_by_color);
-    save_shapes(&mut state);
+    save_picked_shapes(&mut state);
     rotate_used_colors(&mut state);
     // TODO: We shouldn't need to find shapes again!
-    state.apply(find_shapes);
     state.apply(pick_shape_by_color);
-    state.apply(move_shape_to_saved_shape);
+    state.apply(move_picked_shape_to_saved_shape);
     state.apply(unmap_colors);
     state.get_results()
 }
@@ -707,14 +697,52 @@ fn solve_example_11(task: &Task) -> Vec<Example> {
     state.get_results()
 }
 
+fn compare_images(a: &Image, b: &Image) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    for (row_a, row_b) in a.iter().zip(b) {
+        if row_a.len() != row_b.len() {
+            return false;
+        }
+        for (cell_a, cell_b) in row_a.iter().zip(row_b) {
+            if cell_a != cell_b {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 fn main() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
-    let name = "05f2a901"; // 7
-    // let name = "0962bcdd"; // 11
+    let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
+    // let name = "05f2a901"; // 7
+    let name = "0962bcdd"; // 11
     let task = tasks.get(name).expect("Should have been a task");
-    print_task(task);
-    let solutions = solve_example_7(task);
-    for s in solutions {
-        print_example(&s);
+    let solutions = solve_example_11(task);
+    let ref_solution = ref_solutions
+        .get(name)
+        .expect("Should have been a solution");
+    let ref_images: Vec<Image> = task
+        .train
+        .iter()
+        .map(|example| example.output.clone())
+        .chain(ref_solution.iter().cloned())
+        .collect();
+    let mut correct = 0;
+    for i in 0..ref_images.len() {
+        let ref_image = &ref_images[i];
+        let image = &solutions[i].output;
+        if compare_images(ref_image, image) {
+            correct += 1;
+        } else {
+            println!("Expected:");
+            print_image(ref_image);
+            println!("Actual:");
+            print_image(image);
+            println!();
+        }
     }
+    println!("Correct: {}/{}", correct, ref_images.len());
 }
