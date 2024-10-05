@@ -15,6 +15,7 @@ pub struct Example {
     pub output: Image,
 }
 
+type Res<T> = Result<T, &'static str>;
 use std::collections::HashMap as Map;
 
 pub fn parse_image(image: &serde_json::Value) -> Image {
@@ -105,7 +106,6 @@ pub fn parse_task(task: &serde_json::Value) -> Task {
     Task { train, test }
 }
 
-#[allow(dead_code)]
 pub fn print_task(task: &Task) {
     println!("Train:");
     for example in &task.train {
@@ -307,6 +307,9 @@ pub fn move_shape(shape: &Shape, vector: Vec2) -> Shape {
 pub fn paint_shape(image: &Image, shape: &Shape, color: i32) -> Image {
     let mut new_image = image.clone();
     for Vec2 { x, y } in &shape.cells {
+        if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
+            continue;
+        }
         new_image[*y as usize][*x as usize] = color;
     }
     new_image
@@ -325,7 +328,7 @@ pub fn move_shape_to_shape_in_direction(
     to_move: &Shape,
     move_to: &Shape,
     dir: Vec2,
-) -> Image {
+) -> Res<Image> {
     // Figure out moving distance.
     let mut distance = 1;
     loop {
@@ -341,6 +344,12 @@ pub fn move_shape_to_shape_in_direction(
             break;
         }
         distance += 1;
+        if (dir == UP || dir == DOWN) && distance >= image.len() as i32 {
+            return Err("never touched");
+        }
+        if (dir == LEFT || dir == RIGHT) && distance >= image[0].len() as i32 {
+            return Err("never touched");
+        }
     }
     let mut new_image = image.clone();
     let moved = move_shape(
@@ -352,11 +361,11 @@ pub fn move_shape_to_shape_in_direction(
     );
     new_image = remove_shape(&new_image, to_move);
     new_image = draw_shape(&new_image, &moved);
-    new_image
+    Ok(new_image)
 }
 
 // Moves the first shape in a cardinal direction until it touches the second shape.
-pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Shape) -> Image {
+pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Shape) -> Res<Image> {
     // Find the moving direction.
     let to_move_box = bounding_box(to_move);
     let move_to_box = bounding_box(move_to);
@@ -372,7 +381,6 @@ pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Sh
     return move_shape_to_shape_in_direction(image, to_move, move_to, UP);
 }
 
-#[allow(dead_code)]
 pub fn smallest(shapes: Vec<Shape>) -> Shape {
     shapes
         .iter()
@@ -387,27 +395,31 @@ pub fn sort_these_shapes_by_size(shapes: Vec<Shape>) -> Vec<Shape> {
     shapes
 }
 
-pub fn find_shapes(s: &mut SolverState, i: usize) {
+pub fn find_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     if s.shapes.is_none() {
         s.shapes = Some(vec![vec![]; s.images.len()]);
     }
     s.shapes.as_mut().unwrap()[i] = find_shapes_in_image(&s.images[i]);
+    Ok(())
 }
 
-pub fn find_colorsets(s: &mut SolverState, i: usize) {
+pub fn find_colorsets(s: &mut SolverState, i: usize) -> Res<()> {
     if s.colorsets.is_none() {
         s.colorsets = Some(vec![vec![]; s.images.len()]);
     }
     s.colorsets.as_mut().unwrap()[i] = find_colorsets_in_image(&s.images[i]);
+    Ok(())
 }
 
-pub fn use_colorsets_as_shapes(s: &mut SolverState) {
+pub fn use_colorsets_as_shapes(s: &mut SolverState) -> Res<()> {
     s.shapes = s.colorsets.clone();
+    Ok(())
 }
 
-pub fn sort_shapes_by_size(s: &mut SolverState, i: usize) {
+pub fn sort_shapes_by_size(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes.as_mut().expect("must have shapes")[i];
     *shapes = sort_these_shapes_by_size(shapes.clone());
+    Ok(())
 }
 
 fn remap_colors_in_image(image: &mut Image, mapping: &[i32]) {
@@ -453,7 +465,7 @@ fn remap_colors(s: &mut SolverState, i: usize, mapping: &[i32]) {
 
 /// Renumbers the colors of the image to match the order of the shapes.
 /// Modifies the image and the shapes. Returns the mapping.
-fn remap_colors_by_shapes(s: &mut SolverState, i: usize) {
+fn remap_colors_by_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes.as_mut().expect("must have shapes")[i];
     let mut mapping = vec![-1; COLORS.len()];
     for (i, shape) in shapes.iter_mut().enumerate() {
@@ -464,9 +476,10 @@ fn remap_colors_by_shapes(s: &mut SolverState, i: usize) {
         s.color_mapping = Some(vec![vec![]; s.images.len()]);
     }
     s.color_mapping.as_mut().unwrap()[i] = mapping;
+    Ok(())
 }
 
-fn unmap_colors(s: &mut SolverState, i: usize) {
+fn unmap_colors(s: &mut SolverState, i: usize) -> Res<()> {
     let mapping = &s.color_mapping.as_ref().expect("must have color mapping")[i];
     let mut reverse_mapping = vec![0; COLORS.len()];
     for (i, &c) in mapping.iter().enumerate() {
@@ -478,6 +491,7 @@ fn unmap_colors(s: &mut SolverState, i: usize) {
     if i == s.images.len() - 1 {
         s.color_mapping = None;
     }
+    Ok(())
 }
 
 /// Returns the total number of non-zero pixels in the boxes of the given radius
@@ -548,9 +562,20 @@ fn draw_pattern_at(image: &mut Image, dot: &Vec2, pattern: &Pattern) {
     }
 }
 
-fn grow_flowers(s: &mut SolverState) {
-    let shapes = &s.shapes.as_ref().expect("must have shapes");
-    let dots: Vec<Shape> = shapes.iter().map(|shapes| shapes[0].clone()).collect();
+fn get_firsts<T : Clone>(vec: &Vec<Vec<T>>) -> Res<Vec<T>> {
+    let mut firsts = vec![];
+    for e in vec {
+        if e.is_empty() {
+            return Err("empty list");
+        }
+        firsts.push(e[0].clone());
+    }
+    Ok(firsts)
+}
+
+fn grow_flowers(s: &mut SolverState) -> Res<()> {
+    let shapes = &s.shapes.as_ref().ok_or("must have shapes")?;
+    let dots = get_firsts(&shapes)?;
     // let input_pattern = find_pattern_around(&s.images[..s.task.train.len()], &dots);
     let output_pattern = find_pattern_around(&s.output_images, &dots);
     // TODO: Instead of growing each dot, we should filter by the input_pattern.
@@ -560,11 +585,13 @@ fn grow_flowers(s: &mut SolverState) {
         for dot in dots.cells.iter() {
             draw_pattern_at(&mut s.images[i], dot, &output_pattern);
         }
+        Ok(())
     })
 }
 
-fn save_picked_shapes(s: &mut SolverState) {
+fn save_picked_shapes(s: &mut SolverState) -> Res<()> {
     s.saved_shapes = s.picked_shapes.clone();
+    Ok(())
 }
 
 fn get_used_colors(images: &[Image]) -> Vec<i32> {
@@ -624,13 +651,14 @@ impl SolverState {
         }
     }
 
-    fn apply<F>(&mut self, f: F)
+    fn apply<F>(&mut self, f: F) -> Res<()>
     where
-        F: Fn(&mut SolverState, usize),
+        F: Fn(&mut SolverState, usize) -> Res<()>,
     {
         for i in 0..self.images.len() {
-            f(self, i);
+            f(self, i)?;
         }
+        Ok(())
     }
 
     fn get_results(&self) -> Vec<Example> {
@@ -645,56 +673,64 @@ impl SolverState {
     }
 }
 
-fn rotate_used_colors(s: &mut SolverState) {
+fn rotate_used_colors(s: &mut SolverState) -> Res<()> {
+    if s.used_colors.is_empty() {
+        return Err("no used colors");
+    }
     let first_color = s.used_colors[0];
     let n = s.used_colors.len();
     for i in 0..n - 1 {
         s.used_colors[i] = s.used_colors[i + 1];
     }
     s.used_colors[n - 1] = first_color;
+    Ok(())
 }
 
-fn pick_shape_by_color(s: &mut SolverState, i: usize) {
+fn pick_shape_by_color(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
-    let shape = shape_by_color(&shapes, s.used_colors[0]).expect("Should have been a shape");
+    let shape = shape_by_color(&shapes, s.used_colors[0]).ok_or("should have been a shape")?;
     if s.picked_shapes.is_none() {
         s.picked_shapes = Some(vec![vec![]; s.images.len()]);
     }
     s.picked_shapes.as_mut().unwrap()[i] = vec![shape.clone()];
+    Ok(())
 }
 
-fn move_picked_shape_to_saved_shape(s: &mut SolverState, i: usize) {
+fn move_picked_shape_to_saved_shape(s: &mut SolverState, i: usize) -> Res<()> {
     let picked_shapes = &s.picked_shapes.as_ref().expect("must have picked shapes")[i];
     let saved_shapes = &s.saved_shapes.as_ref().expect("must have saved shapes")[i];
-    s.images[i] = move_shape_to_shape_in_image(&s.images[i], &picked_shapes[0], &saved_shapes[0]);
+    s.images[i] = move_shape_to_shape_in_image(
+        &s.images[i], &picked_shapes[0], &saved_shapes[0])?;
+    Ok(())
 }
 
-fn solve_example_7(task: &Task) -> Vec<Example> {
+fn solve_example_7(task: &Task) -> Res<Vec<Example>> {
     let mut state = SolverState::new(task);
-    state.apply(find_colorsets);
-    use_colorsets_as_shapes(&mut state);
-    state.apply(remap_colors_by_shapes);
-    state.apply(find_shapes);
-    rotate_used_colors(&mut state);
-    state.apply(pick_shape_by_color);
-    save_picked_shapes(&mut state);
-    rotate_used_colors(&mut state);
+    state.apply(find_colorsets)?;
+    use_colorsets_as_shapes(&mut state)?;
+    state.apply(remap_colors_by_shapes)?;
+    state.apply(find_shapes)?;
+    rotate_used_colors(&mut state)?;
+    state.apply(pick_shape_by_color)?;
+    save_picked_shapes(&mut state)?;
+    rotate_used_colors(&mut state)?;
     // TODO: We shouldn't need to find shapes again!
-    state.apply(pick_shape_by_color);
-    state.apply(move_picked_shape_to_saved_shape);
-    state.apply(unmap_colors);
-    state.get_results()
+    state.apply(pick_shape_by_color)?;
+    state.apply(move_picked_shape_to_saved_shape)?;
+    state.apply(unmap_colors)?;
+    Ok(state.get_results())
 }
 
-fn solve_example_11(task: &Task) -> Vec<Example> {
+#[allow(dead_code)]
+fn solve_example_11(task: &Task) -> Res<Vec<Example>> {
     let mut state = SolverState::new(task);
-    state.apply(find_colorsets);
-    use_colorsets_as_shapes(&mut state);
-    state.apply(sort_shapes_by_size);
-    state.apply(remap_colors_by_shapes);
-    grow_flowers(&mut state);
-    state.apply(unmap_colors);
-    state.get_results()
+    state.apply(find_colorsets)?;
+    use_colorsets_as_shapes(&mut state)?;
+    state.apply(sort_shapes_by_size)?;
+    state.apply(remap_colors_by_shapes)?;
+    grow_flowers(&mut state)?;
+    state.apply(unmap_colors)?;
+    Ok(state.get_results())
 }
 
 fn compare_images(a: &Image, b: &Image) -> bool {
@@ -714,13 +750,42 @@ fn compare_images(a: &Image, b: &Image) -> bool {
     true
 }
 
-fn main() {
+fn test_on_all_tasks() {
+    let tasks = read_arc_file("../arc-agi_training_challenges.json");
+    let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
+    let mut correct = 0;
+    for (name, task) in &tasks {
+        let solutions = solve_example_7(task);
+        if solutions.is_err() {
+            continue;
+        }
+        let solutions = solutions.unwrap()[task.train.len()..].to_vec();
+        let ref_images = ref_solutions.get(name).expect("Should have been a solution");
+        let mut all_correct = true;
+        for i in 0..ref_images.len() {
+            let ref_image = &ref_images[i];
+            let image = &solutions[i].output;
+            if !compare_images(ref_image, image) {
+                all_correct = false;
+                break;
+            }
+            println!("{}: {}", name, "Correct".green());
+        }
+        if all_correct {
+            correct += 1;
+        }
+    }
+    println!("Correct: {}/{}", correct, tasks.len());
+}
+
+#[allow(dead_code)]
+fn test_on_one_task() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     // let name = "05f2a901"; // 7
     let name = "0962bcdd"; // 11
     let task = tasks.get(name).expect("Should have been a task");
-    let solutions = solve_example_11(task);
+    let solutions = solve_example_11(task).expect("No solution found");
     let ref_solution = ref_solutions
         .get(name)
         .expect("Should have been a solution");
@@ -745,4 +810,9 @@ fn main() {
         }
     }
     println!("Correct: {}/{}", correct, ref_images.len());
+}
+
+fn main() {
+    test_on_all_tasks();
+    // test_on_one_task();
 }
