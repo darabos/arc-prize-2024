@@ -594,6 +594,11 @@ fn save_picked_shapes(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+fn save_whole_image(s: &mut SolverState) -> Res<()> {
+    s.saved_images = s.images.clone();
+    Ok(())
+}
+
 fn get_used_colors(images: &[Image]) -> Vec<i32> {
     let mut is_used = vec![false; COLORS.len()];
     for image in images {
@@ -612,12 +617,30 @@ fn get_used_colors(images: &[Image]) -> Vec<i32> {
     used_colors
 }
 
+fn resize_image(image: &Image, ratio: usize) -> Image {
+    let height = image.len() * ratio;
+    let width = image[0].len() * ratio;
+    let mut new_image = vec![vec![0; width]; height];
+    for y in 0..image.len() {
+        for x in 0..image[0].len() {
+            let color = image[y][x];
+            for dy in 0..ratio {
+                for dx in 0..ratio {
+                    new_image[y * ratio + dy][x * ratio + dx] = color;
+                }
+            }
+        }
+    }
+    new_image
+}
+
 /// Tracks information while applying operations on all examples at once.
 /// Most fields are vectors storing information for each example.
 #[derive(Default)]
 pub struct SolverState {
     pub task: Task,
     pub images: Vec<Image>,
+    pub saved_images: Vec<Image>,
     pub output_images: Vec<Image>,
     pub used_colors: Vec<i32>,
     pub shapes: Option<Vec<Vec<Shape>>>,
@@ -721,7 +744,6 @@ fn solve_example_7(task: &Task) -> Res<Vec<Example>> {
     Ok(state.get_results())
 }
 
-#[allow(dead_code)]
 fn solve_example_11(task: &Task) -> Res<Vec<Example>> {
     let mut state = SolverState::new(task);
     state.apply(find_colorsets)?;
@@ -732,6 +754,21 @@ fn solve_example_11(task: &Task) -> Res<Vec<Example>> {
     state.apply(unmap_colors)?;
     Ok(state.get_results())
 }
+
+fn solve_example_0(task: &Task) -> Res<Vec<Example>> {
+    let mut state = SolverState::new(task);
+    // Working on this...
+    state.apply(find_colorsets)?;
+    use_colorsets_as_shapes(&mut state)?;
+    state.apply(sort_shapes_by_size)?;
+    state.apply(remap_colors_by_shapes)?;
+    grow_flowers(&mut state)?;
+    state.apply(unmap_colors)?;
+    Ok(state.get_results())
+}
+
+type Solver = fn(&Task) -> Res<Vec<Example>>;
+const SOLVERS: &[Solver] = &[solve_example_0, solve_example_7, solve_example_11];
 
 fn compare_images(a: &Image, b: &Image) -> bool {
     if a.len() != b.len() {
@@ -755,24 +792,27 @@ fn test_on_all_tasks() {
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
     for (name, task) in &tasks {
-        let solutions = solve_example_7(task);
-        if solutions.is_err() {
-            continue;
-        }
-        let solutions = solutions.unwrap()[task.train.len()..].to_vec();
-        let ref_images = ref_solutions.get(name).expect("Should have been a solution");
-        let mut all_correct = true;
-        for i in 0..ref_images.len() {
-            let ref_image = &ref_images[i];
-            let image = &solutions[i].output;
-            if !compare_images(ref_image, image) {
-                all_correct = false;
+        for solver in SOLVERS {
+            let solutions = solver(task);
+            if solutions.is_err() {
+                continue;
+            }
+            let solutions = solutions.unwrap()[task.train.len()..].to_vec();
+            let ref_images = ref_solutions.get(name).expect("Should have been a solution");
+            let mut all_correct = true;
+            for i in 0..ref_images.len() {
+                let ref_image = &ref_images[i];
+                let image = &solutions[i].output;
+                if !compare_images(ref_image, image) {
+                    all_correct = false;
+                    break;
+                }
+                println!("{}: {}", name, "Correct".green());
+            }
+            if all_correct {
+                correct += 1;
                 break;
             }
-            println!("{}: {}", name, "Correct".green());
-        }
-        if all_correct {
-            correct += 1;
         }
     }
     println!("Correct: {}/{}", correct, tasks.len());
