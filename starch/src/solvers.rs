@@ -1,18 +1,20 @@
 use crate::tools;
 use crate::tools::{Example, Image, Res, Shape, Task, COLORS};
 
-pub fn find_shapes(s: &mut SolverState, i: usize) -> Res<()> {
-    if s.shapes.is_none() {
-        s.shapes = Some(vec![vec![]; s.images.len()]);
+fn init_shape_vec(n: usize, vec: &mut Option<Vec<Vec<Shape>>>) {
+    if vec.is_none() {
+        *vec = Some((0..n).map(|_| vec![]).collect());
     }
+}
+
+pub fn find_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    init_shape_vec(s.images.len(), &mut s.shapes);
     s.shapes.as_mut().unwrap()[i] = tools::find_shapes_in_image(&s.images[i]);
     Ok(())
 }
 
 pub fn find_colorsets(s: &mut SolverState, i: usize) -> Res<()> {
-    if s.colorsets.is_none() {
-        s.colorsets = Some(vec![vec![]; s.images.len()]);
-    }
+    init_shape_vec(s.images.len(), &mut s.colorsets);
     s.colorsets.as_mut().unwrap()[i] = tools::find_colorsets_in_image(&s.images[i]);
     Ok(())
 }
@@ -24,7 +26,7 @@ pub fn use_colorsets_as_shapes(s: &mut SolverState) -> Res<()> {
 
 pub fn sort_shapes_by_size(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes.as_mut().expect("must have shapes")[i];
-    *shapes = tools::sort_shapes_by_size(shapes.clone());
+    tools::sort_shapes_by_size(shapes);
     Ok(())
 }
 
@@ -89,13 +91,14 @@ fn unmap_colors(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
-fn get_firsts<T: Clone>(vec: &Vec<Vec<T>>) -> Res<Vec<T>> {
+/// Returns the first element of each list.
+fn get_firsts<T>(vec: &Vec<Vec<T>>) -> Res<Vec<&T>> {
     let mut firsts = vec![];
     for e in vec {
         if e.is_empty() {
             return Err("empty list");
         }
-        firsts.push(e[0].clone());
+        firsts.push(&e[0]);
     }
     Ok(firsts)
 }
@@ -205,9 +208,7 @@ fn pick_shape_by_color(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
     let shape =
         tools::shape_by_color(&shapes, s.used_colors[0]).ok_or("should have been a shape")?;
-    if s.picked_shapes.is_none() {
-        s.picked_shapes = Some(vec![vec![]; s.images.len()]);
-    }
+    init_shape_vec(s.images.len(), &mut s.picked_shapes);
     s.picked_shapes.as_mut().unwrap()[i] = vec![shape.clone()];
     Ok(())
 }

@@ -240,7 +240,23 @@ impl Shape {
     }
 }
 
-pub fn paint_shape(image: &Image, shape: &Shape) -> Image {
+/// Draws the image in the given color.
+pub fn paint_shape(image: &Image, shape: &Shape, color: i32) -> Image {
+    let mut new_image = image.clone();
+    for Pixel { x, y, color: _ } in &shape.cells {
+        if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
+            continue;
+        }
+        new_image[*y as usize][*x as usize] = color;
+    }
+    new_image
+}
+
+pub fn remove_shape(image: &Image, shape: &Shape) -> Image {
+    paint_shape(image, &shape, 0)
+}
+/// Draws the shape in its original color.
+pub fn draw_shape(image: &Image, shape: &Shape) -> Image {
     let mut new_image = image.clone();
     for Pixel { x, y, color } in &shape.cells {
         if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
@@ -249,12 +265,6 @@ pub fn paint_shape(image: &Image, shape: &Shape) -> Image {
         new_image[*y as usize][*x as usize] = *color;
     }
     new_image
-}
-
-pub fn remove_shape(image: &Image, shape: &Shape) -> Image {
-    let mut blank = shape.clone();
-    blank.recolor(0);
-    paint_shape(image, &blank)
 }
 
 // Moves the first shape pixel by pixel. (Not using bounding boxes.)
@@ -289,7 +299,7 @@ pub fn move_shape_to_shape_in_direction(
         y: dir.y * distance,
     });
     new_image = remove_shape(&new_image, to_move);
-    new_image = paint_shape(&new_image, &moved);
+    new_image = draw_shape(&new_image, &moved);
     Ok(new_image)
 }
 
@@ -309,19 +319,15 @@ pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Sh
     }
     return move_shape_to_shape_in_direction(image, to_move, move_to, UP);
 }
-
-pub fn smallest(shapes: Vec<Shape>) -> Shape {
+pub fn smallest(shapes: &[Shape]) -> &Shape {
     shapes
         .iter()
         .min_by_key(|shape| shape.cells.len())
         .expect("Should have been a shape")
-        .clone()
 }
 
-pub fn sort_shapes_by_size(shapes: Vec<Shape>) -> Vec<Shape> {
-    let mut shapes = shapes;
+pub fn sort_shapes_by_size(shapes: &mut Vec<Shape>) {
     shapes.sort_by_key(|shape| shape.cells.len());
-    shapes
 }
 
 pub fn remap_colors_in_image(image: &mut Image, mapping: &[i32]) {
@@ -375,7 +381,7 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
     Shape { cells }
 }
 
-pub fn find_pattern_around(images: &[Image], dots: &[Shape]) -> Shape {
+pub fn find_pattern_around(images: &[Image], dots: &[&Shape]) -> Shape {
     let mut radius = 0;
     let mut last_measure = 0;
     loop {
