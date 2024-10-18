@@ -112,7 +112,9 @@ fn main() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
+    // for (name, task) in tasks.iter().filter(|(k, _)| *k == "007bbfb7") {
     for (name, task) in &tasks {
+        // for solver in &solvers::SOLVERS[0..1] {
         for solver in solvers::SOLVERS {
             let solutions = solver(task);
             if solutions.is_err() {
@@ -126,6 +128,7 @@ fn main() {
             for i in 0..ref_images.len() {
                 let ref_image = &ref_images[i];
                 let image = &solutions[i].output;
+                // print_image(image);
                 if !tools::compare_images(ref_image, image) {
                     all_correct = false;
                     break;

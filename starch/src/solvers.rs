@@ -20,7 +20,7 @@ pub fn find_colorsets(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 pub fn use_colorsets_as_shapes(s: &mut SolverState) -> Res<()> {
-    s.shapes = s.colorsets.clone();
+    s.shapes = s.colorsets.take();
     Ok(())
 }
 
@@ -120,7 +120,7 @@ fn grow_flowers(s: &mut SolverState) -> Res<()> {
 }
 
 fn save_picked_shapes(s: &mut SolverState) -> Res<()> {
-    s.saved_shapes = s.picked_shapes.clone();
+    s.saved_shapes = s.picked_shapes.take();
     Ok(())
 }
 
@@ -144,6 +144,7 @@ pub struct SolverState {
     pub colorsets: Option<Vec<Vec<Shape>>>,
     pub dots: Option<Vec<Vec<Shape>>>,
     pub color_mapping: Option<Vec<Vec<i32>>>,
+    pub scale_up: usize,
 }
 
 impl SolverState {
@@ -221,6 +222,46 @@ fn move_picked_shape_to_saved_shape(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+fn resize_image(s: &mut SolverState) -> Res<()> {
+    // Find ratio from looking at example outputs.
+    let output_size = s.output_images[0].len();
+    let input_size = s.images[0].len();
+    if output_size % input_size != 0 {
+        return Err("output size must be a multiple of input size");
+    }
+    s.scale_up = output_size / input_size;
+    s.apply(|s: &mut SolverState, i: usize| {
+        s.images[i] = tools::resize_image(&s.images[i], s.scale_up);
+        Ok(())
+    })
+}
+
+fn save_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
+    init_shape_vec(s.images.len(), &mut s.shapes);
+    s.shapes.as_mut().unwrap()[i] = vec![Shape::from_image(&s.images[i])];
+    Ok(())
+}
+
+fn tile_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &mut s.shapes.as_mut().expect("must have shapes")[i];
+    let current_width = s.images[i][0].len();
+    let current_height = s.images[i].len();
+    let old_width = current_width / s.scale_up;
+    let old_height = current_height / s.scale_up;
+    for shape in shapes.iter_mut() {
+        shape.tile(old_width, s.scale_up, old_height, s.scale_up);
+    }
+    Ok(())
+}
+
+fn draw_shape_where_non_empty(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
+    for shape in shapes {
+        shape.draw_where_non_empty(&mut s.images[i]);
+    }
+    Ok(())
+}
+
 fn solve_example_7(task: &Task) -> Res<Vec<Example>> {
     let mut state = SolverState::new(task);
     state.apply(find_colorsets)?;
@@ -251,13 +292,10 @@ fn solve_example_11(task: &Task) -> Res<Vec<Example>> {
 
 fn solve_example_0(task: &Task) -> Res<Vec<Example>> {
     let mut state = SolverState::new(task);
-    // Working on this...
-    state.apply(find_colorsets)?;
-    use_colorsets_as_shapes(&mut state)?;
-    state.apply(sort_shapes_by_size)?;
-    state.apply(remap_colors_by_shapes)?;
-    grow_flowers(&mut state)?;
-    state.apply(unmap_colors)?;
+    state.apply(save_image_as_shape)?;
+    resize_image(&mut state)?;
+    state.apply(tile_shapes)?;
+    state.apply(draw_shape_where_non_empty)?;
     Ok(state.get_results())
 }
 

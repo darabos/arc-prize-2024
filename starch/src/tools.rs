@@ -238,6 +238,49 @@ impl Shape {
     pub fn color(&self) -> i32 {
         self.cells[0].color
     }
+
+    pub fn tile(&mut self, x_step: usize, x_tiles: usize, y_step: usize, y_tiles: usize) {
+        let mut new_cells = vec![];
+        for Pixel { x, y, color } in &self.cells {
+            for ty in 0..y_tiles {
+                for tx in 0..x_tiles {
+                    new_cells.push(Pixel {
+                        x: x + tx as i32 * x_step as i32,
+                        y: y + ty as i32 * y_step as i32,
+                        color: *color,
+                    });
+                }
+            }
+        }
+        self.cells = new_cells;
+    }
+
+    pub fn draw_where_non_empty(&self, image: &mut Image) {
+        for Pixel { x, y, color } in &self.cells {
+            if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
+                continue;
+            }
+            if image[*y as usize][*x as usize] == 0 {
+                continue;
+            }
+            image[*y as usize][*x as usize] = *color;
+        }
+    }
+
+    pub fn from_image(image: &Image) -> Shape {
+        let mut cells = vec![];
+        for y in 0..image.len() {
+            for x in 0..image[0].len() {
+                let color = image[y][x];
+                cells.push(Pixel {
+                    x: x as i32,
+                    y: y as i32,
+                    color,
+                });
+            }
+        }
+        Shape { cells }
+    }
 }
 
 /// Draws the image in the given color.
