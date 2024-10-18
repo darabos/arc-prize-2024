@@ -101,7 +101,11 @@ pub fn find_shapes_in_image(image: &Image) -> Vec<Shape> {
                         continue;
                     }
                     visited[ny as usize][nx as usize] = true;
-                    cells.push(Pixel { x: nx, y: ny, color });
+                    cells.push(Pixel {
+                        x: nx,
+                        y: ny,
+                        color,
+                    });
                 }
                 i += 1;
             }
@@ -162,66 +166,69 @@ pub struct Rect {
 }
 
 impl Shape {
-  pub fn bounding_box(&self) -> Rect {
-    let mut top = std::i32::MAX;
-    let mut left = std::i32::MAX;
-    let mut bottom = std::i32::MIN;
-    let mut right = std::i32::MIN;
-    for Pixel { x, y, color: _ } in &self.cells {
-        top = top.min(*y);
-        left = left.min(*x);
-        bottom = bottom.max(*y);
-        right = right.max(*x);
-    }
-    Rect {
-        top,
-        left,
-        bottom,
-        right,
-    }
-  }
-
-  pub fn color_at(&self, x: i32, y: i32) -> Option<i32> {
-      for Pixel { x: px, y: py, color } in &self.cells {
-          if *px == x && *py == y {
-              return Some(*color);
-          }
-      }
-      None
-  }
-pub fn does_overlap(&self, other: &Shape) -> bool {
-    // Quick check by bounding box.
-    let a_box = self.bounding_box();
-    let b_box = other.bounding_box();
-    if a_box.right < b_box.left || a_box.left > b_box.right {
-        return false;
-    }
-    if a_box.bottom < b_box.top || a_box.top > b_box.bottom {
-        return false;
-    }
-    // Slow check by pixel.
-    for Pixel { x, y, color: _ } in &self.cells {
-        if other.color_at(*x, *y).is_some() {
-            return true;
+    pub fn bounding_box(&self) -> Rect {
+        let mut top = std::i32::MAX;
+        let mut left = std::i32::MAX;
+        let mut bottom = std::i32::MIN;
+        let mut right = std::i32::MIN;
+        for Pixel { x, y, color: _ } in &self.cells {
+            top = top.min(*y);
+            left = left.min(*x);
+            bottom = bottom.max(*y);
+            right = right.max(*x);
+        }
+        Rect {
+            top,
+            left,
+            bottom,
+            right,
         }
     }
-    false
-}
 
-pub fn move_by(&self, vector: Vec2) -> Shape {
-    let cells = self
-        .cells
-        .iter()
-        .map(|Pixel { x, y, color }| Pixel {
-            x: *x + vector.x,
-            y: *y + vector.y,
-            color: *color,
-        })
-        .collect();
-    Shape {
-        cells,
+    pub fn color_at(&self, x: i32, y: i32) -> Option<i32> {
+        for Pixel {
+            x: px,
+            y: py,
+            color,
+        } in &self.cells
+        {
+            if *px == x && *py == y {
+                return Some(*color);
+            }
+        }
+        None
     }
-  }
+    pub fn does_overlap(&self, other: &Shape) -> bool {
+        // Quick check by bounding box.
+        let a_box = self.bounding_box();
+        let b_box = other.bounding_box();
+        if a_box.right < b_box.left || a_box.left > b_box.right {
+            return false;
+        }
+        if a_box.bottom < b_box.top || a_box.top > b_box.bottom {
+            return false;
+        }
+        // Slow check by pixel.
+        for Pixel { x, y, color: _ } in &self.cells {
+            if other.color_at(*x, *y).is_some() {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn move_by(&self, vector: Vec2) -> Shape {
+        let cells = self
+            .cells
+            .iter()
+            .map(|Pixel { x, y, color }| Pixel {
+                x: *x + vector.x,
+                y: *y + vector.y,
+                color: *color,
+            })
+            .collect();
+        Shape { cells }
+    }
 
     pub fn recolor(&mut self, color: i32) {
         for cell in &mut self.cells {
@@ -232,7 +239,6 @@ pub fn move_by(&self, vector: Vec2) -> Shape {
         self.cells[0].color
     }
 }
-
 
 pub fn paint_shape(image: &Image, shape: &Shape) -> Image {
     let mut new_image = image.clone();
@@ -261,12 +267,10 @@ pub fn move_shape_to_shape_in_direction(
     // Figure out moving distance.
     let mut distance = 1;
     loop {
-        let moved = to_move.move_by(
-            Vec2 {
-                x: dir.x * distance,
-                y: dir.y * distance,
-            },
-        );
+        let moved = to_move.move_by(Vec2 {
+            x: dir.x * distance,
+            y: dir.y * distance,
+        });
         if moved.does_overlap(move_to) {
             distance -= 1;
             break;
@@ -280,12 +284,10 @@ pub fn move_shape_to_shape_in_direction(
         }
     }
     let mut new_image = image.clone();
-    let moved = to_move.move_by(
-        Vec2 {
-            x: dir.x * distance,
-            y: dir.y * distance,
-        },
-    );
+    let moved = to_move.move_by(Vec2 {
+        x: dir.x * distance,
+        y: dir.y * distance,
+    });
     new_image = remove_shape(&new_image, to_move);
     new_image = paint_shape(&new_image, &moved);
     Ok(new_image)
@@ -363,10 +365,14 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
             if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
                 continue;
             }
-            cells.push(Pixel { x: dx, y: dy, color: image[ny as usize][nx as usize] });
+            cells.push(Pixel {
+                x: dx,
+                y: dy,
+                color: image[ny as usize][nx as usize],
+            });
         }
     }
-    Shape{cells}
+    Shape { cells }
 }
 
 pub fn find_pattern_around(images: &[Image], dots: &[Shape]) -> Shape {
@@ -388,7 +394,7 @@ pub fn find_pattern_around(images: &[Image], dots: &[Shape]) -> Shape {
 }
 
 pub fn draw_shape_at(image: &mut Image, dot: &Vec2, shape: &Shape) {
-    for Pixel { x, y , color} in &shape.cells {
+    for Pixel { x, y, color } in &shape.cells {
         let nx = dot.x + x;
         let ny = dot.y + y;
         if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {

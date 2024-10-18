@@ -1,5 +1,5 @@
 use crate::tools;
-use crate::tools::{COLORS, Task, Example, Image, Shape, Res};
+use crate::tools::{Example, Image, Res, Shape, Task, COLORS};
 
 pub fn find_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     if s.shapes.is_none() {
@@ -29,9 +29,9 @@ pub fn sort_shapes_by_size(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn remap_colors(s: &mut SolverState, i: usize, mapping: &[i32]) {
-  tools::remap_colors_in_image(&mut s.images[i], mapping);
+    tools::remap_colors_in_image(&mut s.images[i], mapping);
     if i < s.output_images.len() {
-      tools::remap_colors_in_image(&mut s.output_images[i], mapping);
+        tools::remap_colors_in_image(&mut s.output_images[i], mapping);
     }
     if let Some(colorsets) = &mut s.colorsets {
         for shape in colorsets[i].iter_mut() {
@@ -89,7 +89,7 @@ fn unmap_colors(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
-fn get_firsts<T : Clone>(vec: &Vec<Vec<T>>) -> Res<Vec<T>> {
+fn get_firsts<T: Clone>(vec: &Vec<Vec<T>>) -> Res<Vec<T>> {
     let mut firsts = vec![];
     for e in vec {
         if e.is_empty() {
@@ -110,7 +110,7 @@ fn grow_flowers(s: &mut SolverState) -> Res<()> {
         let shapes = &s.shapes.as_ref().expect("must have shapes");
         let dots = &shapes[i][0];
         for dot in dots.cells.iter() {
-          tools::draw_shape_at(&mut s.images[i], &dot.pos(), &output_pattern);
+            tools::draw_shape_at(&mut s.images[i], &dot.pos(), &output_pattern);
         }
         Ok(())
     })
@@ -203,7 +203,8 @@ fn rotate_used_colors(s: &mut SolverState) -> Res<()> {
 
 fn pick_shape_by_color(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
-    let shape = tools::shape_by_color(&shapes, s.used_colors[0]).ok_or("should have been a shape")?;
+    let shape =
+        tools::shape_by_color(&shapes, s.used_colors[0]).ok_or("should have been a shape")?;
     if s.picked_shapes.is_none() {
         s.picked_shapes = Some(vec![vec![]; s.images.len()]);
     }
@@ -214,8 +215,8 @@ fn pick_shape_by_color(s: &mut SolverState, i: usize) -> Res<()> {
 fn move_picked_shape_to_saved_shape(s: &mut SolverState, i: usize) -> Res<()> {
     let picked_shapes = &s.picked_shapes.as_ref().expect("must have picked shapes")[i];
     let saved_shapes = &s.saved_shapes.as_ref().expect("must have saved shapes")[i];
-    s.images[i] = tools::move_shape_to_shape_in_image(
-        &s.images[i], &picked_shapes[0], &saved_shapes[0])?;
+    s.images[i] =
+        tools::move_shape_to_shape_in_image(&s.images[i], &picked_shapes[0], &saved_shapes[0])?;
     Ok(())
 }
 

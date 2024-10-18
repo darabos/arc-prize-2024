@@ -1,10 +1,10 @@
 use colored::Colorize;
 use serde_json;
-use std::fs;
 use std::collections::HashMap as Map;
+use std::fs;
 mod solvers;
 mod tools;
-use tools::{COLORS, Image, Example, Task};
+use tools::{Example, Image, Task, COLORS};
 
 pub fn parse_image(image: &serde_json::Value) -> Image {
     image
@@ -119,7 +119,9 @@ fn main() {
                 continue;
             }
             let solutions = solutions.unwrap()[task.train.len()..].to_vec();
-            let ref_images = ref_solutions.get(name).expect("Should have been a solution");
+            let ref_images = ref_solutions
+                .get(name)
+                .expect("Should have been a solution");
             let mut all_correct = true;
             for i in 0..ref_images.len() {
                 let ref_image = &ref_images[i];
