@@ -35,22 +35,22 @@ fn remap_colors(s: &mut SolverState, i: usize, mapping: &[i32]) {
     }
     if let Some(colorsets) = &mut s.colorsets {
         for shape in colorsets[i].iter_mut() {
-            shape.color = mapping[shape.color as usize];
+            shape.recolor(mapping[shape.color() as usize]);
         }
     }
     if let Some(shapes) = &mut s.shapes {
         for shape in shapes[i].iter_mut() {
-            shape.color = mapping[shape.color as usize];
+            shape.recolor(mapping[shape.color() as usize]);
         }
     }
     if let Some(saved_shapes) = &mut s.saved_shapes {
         for shape in saved_shapes[i].iter_mut() {
-            shape.color = mapping[shape.color as usize];
+            shape.recolor(mapping[shape.color() as usize]);
         }
     }
     if let Some(dots) = &mut s.dots {
         for shape in dots[i].iter_mut() {
-            shape.color = mapping[shape.color as usize];
+            shape.recolor(mapping[shape.color() as usize]);
         }
     }
     if i == s.images.len() - 1 {
@@ -64,7 +64,7 @@ fn remap_colors_by_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes.as_mut().expect("must have shapes")[i];
     let mut mapping = vec![-1; COLORS.len()];
     for (i, shape) in shapes.iter_mut().enumerate() {
-        mapping[shape.color as usize] = i as i32 + 1;
+        mapping[shape.color() as usize] = i as i32 + 1;
     }
     remap_colors(s, i, &mapping);
     if s.color_mapping.is_none() {
@@ -110,7 +110,7 @@ fn grow_flowers(s: &mut SolverState) -> Res<()> {
         let shapes = &s.shapes.as_ref().expect("must have shapes");
         let dots = &shapes[i][0];
         for dot in dots.cells.iter() {
-          tools::draw_pattern_at(&mut s.images[i], dot, &output_pattern);
+          tools::draw_shape_at(&mut s.images[i], &dot.pos(), &output_pattern);
         }
         Ok(())
     })

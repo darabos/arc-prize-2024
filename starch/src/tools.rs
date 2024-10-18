@@ -1,33 +1,35 @@
-use colored::Color;
+use colored;
 
-pub const COLORS: [Color; 12] = [
-    Color::BrightWhite,
-    Color::Black,
-    Color::Blue,
-    Color::Red,
-    Color::Green,
-    Color::Yellow,
-    Color::TrueColor {
+type Color = i32;
+
+pub const COLORS: [colored::Color; 12] = [
+    colored::Color::BrightWhite,
+    colored::Color::Black,
+    colored::Color::Blue,
+    colored::Color::Red,
+    colored::Color::Green,
+    colored::Color::Yellow,
+    colored::Color::TrueColor {
         r: 128,
         g: 0,
         b: 128,
     },
-    Color::TrueColor {
+    colored::Color::TrueColor {
         r: 255,
         g: 165,
         b: 0,
     },
-    Color::TrueColor {
+    colored::Color::TrueColor {
         r: 165,
         g: 42,
         b: 42,
     },
-    Color::Magenta,
-    Color::White,
-    Color::Cyan,
+    colored::Color::Magenta,
+    colored::Color::White,
+    colored::Color::Cyan,
 ];
 
-pub type Image = Vec<Vec<i32>>;
+pub type Image = Vec<Vec<Color>>;
 #[derive(Clone, Default)]
 pub struct Task {
     pub train: Vec<Example>,
@@ -47,11 +49,16 @@ pub struct Vec2 {
     pub x: i32,
     pub y: i32,
 }
+#[derive(Clone, PartialEq)]
+pub struct Pixel {
+    pub x: i32,
+    pub y: i32,
+    pub color: Color,
+}
 
 #[derive(Clone, Default)]
 pub struct Shape {
-    pub color: i32,
-    pub cells: Vec<Vec2>,
+    pub cells: Vec<Pixel>,
 }
 
 pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
@@ -72,14 +79,15 @@ pub fn find_shapes_in_image(image: &Image) -> Vec<Shape> {
             if color == 0 {
                 continue;
             }
-            let mut cells = vec![Vec2 {
+            let mut cells = vec![Pixel {
                 x: x as i32,
                 y: y as i32,
+                color,
             }];
             visited[y][x] = true;
             let mut i = 0;
             while i < cells.len() {
-                let Vec2 { x, y } = cells[i];
+                let Pixel { x, y, color: _ } = cells[i];
                 for dir in &DIRECTIONS {
                     let nx = x + dir.x;
                     let ny = y + dir.y;
@@ -93,11 +101,11 @@ pub fn find_shapes_in_image(image: &Image) -> Vec<Shape> {
                         continue;
                     }
                     visited[ny as usize][nx as usize] = true;
-                    cells.push(Vec2 { x: nx, y: ny });
+                    cells.push(Pixel { x: nx, y: ny, color });
                 }
                 i += 1;
             }
-            shapes.push(Shape { color, cells });
+            shapes.push(Shape { cells });
         }
     }
     shapes
@@ -113,15 +121,12 @@ pub fn find_colorsets_in_image(image: &Image) -> Vec<Shape> {
             if color == 0 {
                 continue;
             }
-            colorsets[color as usize].cells.push(Vec2 {
+            colorsets[color as usize].cells.push(Pixel {
                 x: x as i32,
                 y: y as i32,
+                color,
             });
         }
-    }
-    // Set color attribute.
-    for (color, colorset) in colorsets.iter_mut().enumerate() {
-        colorset.color = color as i32;
     }
     // Filter non-empty colorsets.
     colorsets = colorsets
@@ -133,11 +138,20 @@ pub fn find_colorsets_in_image(image: &Image) -> Vec<Shape> {
 
 pub fn shape_by_color(shapes: &[Shape], color: i32) -> Option<&Shape> {
     for shape in shapes {
-        if shape.color == color {
+        if shape.color() == color {
             return Some(shape);
         }
     }
     None
+}
+
+impl Pixel {
+    pub fn pos(&self) -> Vec2 {
+        Vec2 {
+            x: self.x,
+            y: self.y,
+        }
+    }
 }
 
 pub struct Rect {
@@ -147,12 +161,13 @@ pub struct Rect {
     pub right: i32,
 }
 
-pub fn bounding_box(shape: &Shape) -> Rect {
+impl Shape {
+  pub fn bounding_box(&self) -> Rect {
     let mut top = std::i32::MAX;
     let mut left = std::i32::MAX;
     let mut bottom = std::i32::MIN;
     let mut right = std::i32::MIN;
-    for Vec2 { x, y } in &shape.cells {
+    for Pixel { x, y, color: _ } in &self.cells {
         top = top.min(*y);
         left = left.min(*x);
         bottom = bottom.max(*y);
@@ -164,12 +179,20 @@ pub fn bounding_box(shape: &Shape) -> Rect {
         bottom,
         right,
     }
-}
+  }
 
-pub fn do_shapes_overlap(a: &Shape, b: &Shape) -> bool {
+  pub fn color_at(&self, x: i32, y: i32) -> Option<i32> {
+      for Pixel { x: px, y: py, color } in &self.cells {
+          if *px == x && *py == y {
+              return Some(*color);
+          }
+      }
+      None
+  }
+pub fn does_overlap(&self, other: &Shape) -> bool {
     // Quick check by bounding box.
-    let a_box = bounding_box(a);
-    let b_box = bounding_box(b);
+    let a_box = self.bounding_box();
+    let b_box = other.bounding_box();
     if a_box.right < b_box.left || a_box.left > b_box.right {
         return false;
     }
@@ -177,45 +200,55 @@ pub fn do_shapes_overlap(a: &Shape, b: &Shape) -> bool {
         return false;
     }
     // Slow check by pixel.
-    for Vec2 { x, y } in &a.cells {
-        if b.cells.contains(&Vec2 { x: *x, y: *y }) {
+    for Pixel { x, y, color: _ } in &self.cells {
+        if other.color_at(*x, *y).is_some() {
             return true;
         }
     }
     false
 }
 
-pub fn move_shape(shape: &Shape, vector: Vec2) -> Shape {
-    let cells = shape
+pub fn move_by(&self, vector: Vec2) -> Shape {
+    let cells = self
         .cells
         .iter()
-        .map(|Vec2 { x, y }| Vec2 {
+        .map(|Pixel { x, y, color }| Pixel {
             x: *x + vector.x,
             y: *y + vector.y,
+            color: *color,
         })
         .collect();
     Shape {
-        color: shape.color,
         cells,
+    }
+  }
+
+    pub fn recolor(&mut self, color: i32) {
+        for cell in &mut self.cells {
+            cell.color = color;
+        }
+    }
+    pub fn color(&self) -> i32 {
+        self.cells[0].color
     }
 }
 
-pub fn paint_shape(image: &Image, shape: &Shape, color: i32) -> Image {
+
+pub fn paint_shape(image: &Image, shape: &Shape) -> Image {
     let mut new_image = image.clone();
-    for Vec2 { x, y } in &shape.cells {
+    for Pixel { x, y, color } in &shape.cells {
         if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
             continue;
         }
-        new_image[*y as usize][*x as usize] = color;
+        new_image[*y as usize][*x as usize] = *color;
     }
     new_image
 }
 
 pub fn remove_shape(image: &Image, shape: &Shape) -> Image {
-    paint_shape(image, shape, 0)
-}
-pub fn draw_shape(image: &Image, shape: &Shape) -> Image {
-    paint_shape(image, shape, shape.color)
+    let mut blank = shape.clone();
+    blank.recolor(0);
+    paint_shape(image, &blank)
 }
 
 // Moves the first shape pixel by pixel. (Not using bounding boxes.)
@@ -228,14 +261,13 @@ pub fn move_shape_to_shape_in_direction(
     // Figure out moving distance.
     let mut distance = 1;
     loop {
-        let moved = move_shape(
-            to_move,
+        let moved = to_move.move_by(
             Vec2 {
                 x: dir.x * distance,
                 y: dir.y * distance,
             },
         );
-        if do_shapes_overlap(&moved, move_to) {
+        if moved.does_overlap(move_to) {
             distance -= 1;
             break;
         }
@@ -248,23 +280,22 @@ pub fn move_shape_to_shape_in_direction(
         }
     }
     let mut new_image = image.clone();
-    let moved = move_shape(
-        to_move,
+    let moved = to_move.move_by(
         Vec2 {
             x: dir.x * distance,
             y: dir.y * distance,
         },
     );
     new_image = remove_shape(&new_image, to_move);
-    new_image = draw_shape(&new_image, &moved);
+    new_image = paint_shape(&new_image, &moved);
     Ok(new_image)
 }
 
 // Moves the first shape in a cardinal direction until it touches the second shape.
 pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Shape) -> Res<Image> {
     // Find the moving direction.
-    let to_move_box = bounding_box(to_move);
-    let move_to_box = bounding_box(move_to);
+    let to_move_box = to_move.bounding_box();
+    let move_to_box = move_to.bounding_box();
     if to_move_box.right < move_to_box.left {
         return move_shape_to_shape_in_direction(image, to_move, move_to, RIGHT);
     }
@@ -306,7 +337,7 @@ pub fn remap_colors_in_image(image: &mut Image, mapping: &[i32]) {
 /// around the dots.
 pub fn measure_boxes_with_radius(image: &Image, dots: &Shape, radius: i32) -> usize {
     let mut count = 0;
-    for Vec2 { x, y } in &dots.cells {
+    for Pixel { x, y, color: _ } in &dots.cells {
         for dx in -radius..=radius {
             for dy in -radius..=radius {
                 let nx = x + dx;
@@ -323,11 +354,8 @@ pub fn measure_boxes_with_radius(image: &Image, dots: &Shape, radius: i32) -> us
     count
 }
 
-/// Pixels with their relative coordinates and color.
-type Pattern = Vec<(Vec2, i32)>;
-
-pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Pattern {
-    let mut pattern = vec![];
+pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
+    let mut cells = vec![];
     for dx in -radius..=radius {
         for dy in -radius..=radius {
             let nx = dot.x + dx;
@@ -335,13 +363,13 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Pattern {
             if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
                 continue;
             }
-            pattern.push((Vec2 { x: dx, y: dy }, image[ny as usize][nx as usize]));
+            cells.push(Pixel { x: dx, y: dy, color: image[ny as usize][nx as usize] });
         }
     }
-    pattern
+    Shape{cells}
 }
 
-pub fn find_pattern_around(images: &[Image], dots: &[Shape]) -> Pattern {
+pub fn find_pattern_around(images: &[Image], dots: &[Shape]) -> Shape {
     let mut radius = 0;
     let mut last_measure = 0;
     loop {
@@ -356,11 +384,11 @@ pub fn find_pattern_around(images: &[Image], dots: &[Shape]) -> Pattern {
         radius += 1;
     }
     // TODO: Instead of just looking at the measure, we should look at the pattern.
-    get_pattern_around(&images[0], &dots[0].cells[0], radius)
+    get_pattern_around(&images[0], &dots[0].cells[0].pos(), radius)
 }
 
-pub fn draw_pattern_at(image: &mut Image, dot: &Vec2, pattern: &Pattern) {
-    for (Vec2 { x, y }, color) in pattern {
+pub fn draw_shape_at(image: &mut Image, dot: &Vec2, shape: &Shape) {
+    for Pixel { x, y , color} in &shape.cells {
         let nx = dot.x + x;
         let ny = dot.y + y;
         if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
