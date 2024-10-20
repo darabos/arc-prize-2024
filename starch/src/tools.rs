@@ -1,5 +1,6 @@
 use colored;
 use colored::Colorize;
+use std::rc::Rc;
 
 type Color = i32;
 
@@ -77,7 +78,7 @@ pub fn print_color(color: i32) {
 }
 
 pub fn print_image(image: &Image) {
-    for row in image {
+    for row in image.iter() {
         for cell in row {
             print_color(*cell);
         }
@@ -105,7 +106,7 @@ pub fn print_task(task: &Task) {
     }
 }
 
-pub fn find_shapes_in_image(image: &Image) -> Vec<Shape> {
+pub fn find_shapes_in_image(image: &Image) -> Vec<Rc<Shape>> {
     let mut shapes = vec![];
     let mut visited = vec![vec![false; image[0].len()]; image.len()];
     for y in 0..image.len() {
@@ -146,14 +147,14 @@ pub fn find_shapes_in_image(image: &Image) -> Vec<Shape> {
                 }
                 i += 1;
             }
-            shapes.push(Shape { cells });
+            shapes.push(Rc::new(Shape { cells }));
         }
     }
     shapes
 }
 
 /// Finds "colorsets" in the image. A colorset is a set of all pixels with the same color.
-pub fn find_colorsets_in_image(image: &Image) -> Vec<Shape> {
+pub fn find_colorsets_in_image(image: &Image) -> Vec<Rc<Shape>> {
     // Create blank colorset for each color.
     let mut colorsets = vec![Shape::default(); COLORS.len()];
     for y in 0..image.len() {
@@ -169,18 +170,18 @@ pub fn find_colorsets_in_image(image: &Image) -> Vec<Shape> {
             });
         }
     }
-    // Filter non-empty colorsets.
-    colorsets = colorsets
+    // Put non-empty colorsets into Rc.
+    colorsets
         .into_iter()
         .filter(|colorset| !colorset.cells.is_empty())
-        .collect();
-    colorsets
+        .map(|colorset| Rc::new(colorset))
+        .collect()
 }
 
-pub fn shape_by_color(shapes: &[Shape], color: i32) -> Option<&Shape> {
+pub fn shape_by_color(shapes: &[Rc<Shape>], color: i32) -> Option<Rc<Shape>> {
     for shape in shapes {
         if shape.color() == color {
-            return Some(shape);
+            return Some(shape.clone());
         }
     }
     None
@@ -421,12 +422,13 @@ pub fn smallest(shapes: &[Shape]) -> &Shape {
         .expect("Should have been a shape")
 }
 
-pub fn sort_shapes_by_size(shapes: &mut Vec<Shape>) {
+pub fn sort_shapes_by_size(shapes: &mut Vec<Rc<Shape>>) {
     shapes.sort_by_key(|shape| shape.cells.len());
 }
 
-pub fn remap_colors_in_image(image: &mut Image, mapping: &[i32]) {
-    for row in image {
+pub fn remap_colors_in_image(image: &Image, mapping: &[i32]) -> Rc<Image> {
+    let mut new_image = image.clone();
+    for row in &mut new_image {
         for cell in row {
             let c = mapping[*cell as usize];
             if c != -1 {
@@ -434,6 +436,7 @@ pub fn remap_colors_in_image(image: &mut Image, mapping: &[i32]) {
             }
         }
     }
+    Rc::new(new_image)
 }
 
 pub fn lookup_in_image(image: &Image, x: i32, y: i32) -> Res<i32> {
@@ -483,7 +486,7 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
     Shape { cells }
 }
 
-pub fn find_pattern_around(images: &[Image], dots: &[&Shape]) -> Shape {
+pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Shape {
     let mut radius = 0;
     let mut last_measure = 0;
     loop {
@@ -512,10 +515,10 @@ pub fn draw_shape_at(image: &mut Image, dot: &Vec2, shape: &Shape) {
     }
 }
 
-pub fn get_used_colors(images: &[Image]) -> Vec<i32> {
+pub fn get_used_colors(images: &[Rc<Image>]) -> Vec<i32> {
     let mut is_used = vec![false; COLORS.len()];
     for image in images {
-        for row in image {
+        for row in image.iter() {
             for cell in row {
                 is_used[*cell as usize] = true;
             }

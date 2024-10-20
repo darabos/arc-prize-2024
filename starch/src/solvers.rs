@@ -1,7 +1,8 @@
 use crate::tools;
 use crate::tools::{Example, Image, Res, Shape, Task, COLORS};
+use std::rc::Rc;
 
-fn init_shape_vec(n: usize, vec: &mut Option<Vec<Vec<Shape>>>) {
+fn init_shape_vec(n: usize, vec: &mut Option<Vec<Vec<Rc<Shape>>>>) {
     if vec.is_none() {
         *vec = Some((0..n).map(|_| vec![]).collect());
     }
@@ -30,29 +31,41 @@ pub fn sort_shapes_by_size(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+fn getmut<T>(rc: &mut Rc<T>) -> &mut T {
+    Rc::get_mut(rc).expect("rc get_mut failed")
+}
+
 fn remap_colors(s: &mut SolverState, i: usize, mapping: &[i32]) {
-    tools::remap_colors_in_image(&mut s.images[i], mapping);
+    s.images[i] = tools::remap_colors_in_image(&s.images[i], mapping);
     if i < s.output_images.len() {
-        tools::remap_colors_in_image(&mut s.output_images[i], mapping);
+        s.output_images[i] = tools::remap_colors_in_image(&s.output_images[i], mapping);
     }
     if let Some(colorsets) = &mut s.colorsets {
         for shape in colorsets[i].iter_mut() {
-            shape.recolor(mapping[shape.color() as usize]);
+            let mut new_shape = (**shape).clone();
+            new_shape.recolor(mapping[shape.color() as usize]);
+            *shape = Rc::new(new_shape);
         }
     }
     if let Some(shapes) = &mut s.shapes {
         for shape in shapes[i].iter_mut() {
-            shape.recolor(mapping[shape.color() as usize]);
+            let mut new_shape = (**shape).clone();
+            new_shape.recolor(mapping[shape.color() as usize]);
+            *shape = Rc::new(new_shape);
         }
     }
     if let Some(saved_shapes) = &mut s.saved_shapes {
         for shape in saved_shapes[i].iter_mut() {
-            shape.recolor(mapping[shape.color() as usize]);
+            let mut new_shape = (**shape).clone();
+            new_shape.recolor(mapping[shape.color() as usize]);
+            *shape = Rc::new(new_shape);
         }
     }
     if let Some(dots) = &mut s.dots {
         for shape in dots[i].iter_mut() {
-            shape.recolor(mapping[shape.color() as usize]);
+            let mut new_shape = (**shape).clone();
+            new_shape.recolor(mapping[shape.color() as usize]);
+            *shape = Rc::new(new_shape);
         }
     }
     if i == s.images.len() - 1 {
@@ -112,9 +125,11 @@ fn grow_flowers(s: &mut SolverState) -> Res<()> {
     s.apply(|s: &mut SolverState, i: usize| {
         let shapes = &s.shapes.as_ref().expect("must have shapes");
         let dots = &shapes[i][0];
+        let mut new_image = (*s.images[i]).clone();
         for dot in dots.cells.iter() {
-            tools::draw_shape_at(&mut s.images[i], &dot.pos(), &output_pattern);
+            tools::draw_shape_at(&mut new_image, &dot.pos(), &output_pattern);
         }
+        s.images[i] = Rc::new(new_image);
         Ok(())
     })
 }
@@ -138,36 +153,36 @@ fn save_whole_image(s: &mut SolverState) -> Res<()> {
 /// Most fields are vectors storing information for each example.
 #[derive(Default)]
 pub struct SolverState {
-    pub task: Task,
-    pub images: Vec<Image>,
-    pub saved_images: Vec<Image>,
-    pub output_images: Vec<Image>,
+    pub task: Rc<Task>,
+    pub images: Vec<Rc<Image>>,
+    pub saved_images: Vec<Rc<Image>>,
+    pub output_images: Vec<Rc<Image>>,
     pub used_colors: Vec<i32>,
-    pub shapes: Option<Vec<Vec<Shape>>>,
-    pub picked_shapes: Option<Vec<Vec<Shape>>>,
-    pub saved_shapes: Option<Vec<Vec<Shape>>>,
-    pub colorsets: Option<Vec<Vec<Shape>>>,
-    pub dots: Option<Vec<Vec<Shape>>>,
+    pub shapes: Option<Vec<Vec<Rc<Shape>>>>,
+    pub picked_shapes: Option<Vec<Vec<Rc<Shape>>>>,
+    pub saved_shapes: Option<Vec<Vec<Rc<Shape>>>>,
+    pub colorsets: Option<Vec<Vec<Rc<Shape>>>>,
+    pub dots: Option<Vec<Vec<Rc<Shape>>>>,
     pub color_mapping: Option<Vec<Vec<i32>>>,
     pub scale_up: usize,
 }
 
 impl SolverState {
     fn new(task: &Task) -> Self {
-        let images: Vec<Image> = task
+        let images: Vec<Rc<Image>> = task
             .train
             .iter()
             .chain(task.test.iter())
-            .map(|example| example.input.clone())
+            .map(|example| Rc::new(example.input.clone()))
             .collect();
         let output_images = task
             .train
             .iter()
-            .map(|example| example.output.clone())
+            .map(|example| Rc::new(example.output.clone()))
             .collect();
         let used_colors = tools::get_used_colors(&images);
         SolverState {
-            task: task.clone(),
+            task: Rc::new(task.clone()),
             images,
             output_images,
             used_colors,
@@ -191,7 +206,7 @@ impl SolverState {
             .zip(self.task.train.iter().chain(self.task.test.iter()))
             .map(|(image, example)| Example {
                 input: example.input.clone(),
-                output: image.clone(),
+                output: (**image).clone(),
             })
             .collect()
     }
@@ -226,7 +241,7 @@ impl SolverState {
 }
 
 #[allow(dead_code)]
-fn print_shapes(shapes: &Option<Vec<Vec<Shape>>>) {
+fn print_shapes(shapes: &Option<Vec<Vec<Rc<Shape>>>>) {
     if let Some(shapes) = shapes {
         for (i, shapes) in shapes.iter().enumerate() {
             println!("Shapes for example {}", i);
@@ -274,8 +289,11 @@ fn filter_shapes_by_color(s: &mut SolverState, i: usize) -> Res<()> {
 fn move_picked_shape_to_saved_shape(s: &mut SolverState, i: usize) -> Res<()> {
     let picked_shapes = &s.picked_shapes.as_ref().expect("must have picked shapes")[i];
     let saved_shapes = &s.saved_shapes.as_ref().expect("must have saved shapes")[i];
-    s.images[i] =
-        tools::move_shape_to_shape_in_image(&s.images[i], &picked_shapes[0], &saved_shapes[0])?;
+    s.images[i] = Rc::new(tools::move_shape_to_shape_in_image(
+        &s.images[i],
+        &picked_shapes[0],
+        &saved_shapes[0],
+    )?);
     Ok(())
 }
 
@@ -288,14 +306,14 @@ fn resize_image(s: &mut SolverState) -> Res<()> {
     }
     s.scale_up = output_size / input_size;
     s.apply(|s: &mut SolverState, i: usize| {
-        s.images[i] = tools::resize_image(&s.images[i], s.scale_up);
+        s.images[i] = Rc::new(tools::resize_image(&s.images[i], s.scale_up));
         Ok(())
     })
 }
 
 fn save_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
     init_shape_vec(s.images.len(), &mut s.shapes);
-    s.shapes.as_mut().unwrap()[i] = vec![Shape::from_image(&s.images[i])];
+    s.shapes.as_mut().unwrap()[i] = vec![Rc::new(Shape::from_image(&s.images[i]))];
     Ok(())
 }
 
@@ -306,16 +324,20 @@ fn tile_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let old_width = current_width / s.scale_up;
     let old_height = current_height / s.scale_up;
     for shape in shapes.iter_mut() {
-        shape.tile(old_width, s.scale_up, old_height, s.scale_up);
+        let mut new_shape = (**shape).clone();
+        new_shape.tile(old_width, s.scale_up, old_height, s.scale_up);
+        *shape = Rc::new(new_shape);
     }
     Ok(())
 }
 
 fn draw_shape_where_non_empty(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
+    let mut new_image = (*s.images[i]).clone();
     for shape in shapes {
-        shape.draw_where_non_empty(&mut s.images[i]);
+        shape.draw_where_non_empty(&mut new_image);
     }
+    s.images[i] = Rc::new(new_image);
     Ok(())
 }
 
@@ -353,7 +375,9 @@ fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
     // Recolor shapes.
     for shapes in s.shapes.as_mut().expect("must have shapes") {
         for shape in shapes {
-            shape.recolor(color);
+            let mut new_shape = (**shape).clone();
+            new_shape.recolor(color);
+            *shape = Rc::new(new_shape);
         }
     }
     Ok(())
@@ -361,9 +385,11 @@ fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
 
 fn draw_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
+    let mut new_image = (*s.images[i]).clone();
     for shape in shapes {
-        tools::draw_shape(&mut s.images[i], shape);
+        tools::draw_shape(&mut new_image, shape);
     }
+    s.images[i] = Rc::new(new_image);
     Ok(())
 }
 
