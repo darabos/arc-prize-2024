@@ -33,49 +33,12 @@ pub fn parse_example(example: &serde_json::Value) -> Example {
     Example { input, output }
 }
 
-pub fn print_color(color: i32) {
-    if color == 0 {
-        print!(" ");
-    } else {
-        print!("{}", "█".color(COLORS[color as usize]));
-    }
-}
-
-pub fn print_image(image: &Image) {
-    for row in image {
-        for cell in row {
-            print_color(*cell);
-        }
-        println!();
-    }
-}
-
-pub fn print_example(example: &Example) {
-    println!("Input:");
-    print_image(&example.input);
-    if !example.output.is_empty() {
-        println!("Output:");
-        print_image(&example.output);
-    }
-}
-
 pub fn parse_task(task: &serde_json::Value) -> Task {
     let train = task["train"].as_array().expect("Should have been an array");
     let train = train.iter().map(|example| parse_example(example)).collect();
     let test = task["test"].as_array().expect("Should have been an array");
     let test = test.iter().map(|example| parse_example(example)).collect();
     Task { train, test }
-}
-
-pub fn print_task(task: &Task) {
-    println!("Train:");
-    for example in &task.train {
-        print_example(example);
-    }
-    println!("Test:");
-    for example in &task.test {
-        print_example(example);
-    }
 }
 
 pub fn read_arc_file(file_path: &str) -> Map<String, Task> {
@@ -112,12 +75,15 @@ fn main() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // for (name, task) in tasks.iter().filter(|(k, _)| *k == "007bbfb7") {
+    // for (name, task) in tasks.iter().filter(|(k, _)| *k == "00d62c1b") {
     for (name, task) in &tasks {
-        // for solver in &solvers::SOLVERS[0..1] {
+        // println!("Task: {}", name);
+        // tools::print_task(task);
+        // for solver in &solvers::SOLVERS[1..2] {
         for solver in solvers::SOLVERS {
             let solutions = solver(task);
-            if solutions.is_err() {
+            if let Err(_error) = solutions {
+                // println!("{}: {}", name, error.red());
                 continue;
             }
             let solutions = solutions.unwrap()[task.train.len()..].to_vec();
@@ -128,11 +94,11 @@ fn main() {
             for i in 0..ref_images.len() {
                 let ref_image = &ref_images[i];
                 let image = &solutions[i].output;
-                // print_image(image);
                 if !tools::compare_images(ref_image, image) {
                     all_correct = false;
                     break;
                 }
+                tools::print_image(image);
                 println!("{}: {}", name, "Correct".green());
             }
             if all_correct {

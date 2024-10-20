@@ -78,7 +78,7 @@ fn remap_colors_by_shapes(s: &mut SolverState, i: usize) -> Res<()> {
 
 fn unmap_colors(s: &mut SolverState, i: usize) -> Res<()> {
     let mapping = &s.color_mapping.as_ref().expect("must have color mapping")[i];
-    let mut reverse_mapping = vec![0; COLORS.len()];
+    let mut reverse_mapping = vec![-1; COLORS.len()];
     for (i, &c) in mapping.iter().enumerate() {
         if c != -1 {
             reverse_mapping[c as usize] = i as i32;
@@ -121,6 +121,11 @@ fn grow_flowers(s: &mut SolverState) -> Res<()> {
 
 fn save_picked_shapes(s: &mut SolverState) -> Res<()> {
     s.saved_shapes = s.picked_shapes.take();
+    Ok(())
+}
+
+fn use_picked_shapes(s: &mut SolverState) -> Res<()> {
+    s.shapes = s.picked_shapes.take();
     Ok(())
 }
 
@@ -190,6 +195,47 @@ impl SolverState {
             })
             .collect()
     }
+
+    #[allow(dead_code)]
+    fn print_shapes(&self) {
+        print_shapes(&self.shapes);
+    }
+    #[allow(dead_code)]
+    fn print_saved_shapes(&self) {
+        print_shapes(&self.saved_shapes);
+    }
+    #[allow(dead_code)]
+    fn print_picked_shapes(&self) {
+        print_shapes(&self.picked_shapes);
+    }
+    #[allow(dead_code)]
+    fn print_colorsets(&self) {
+        print_shapes(&self.colorsets);
+    }
+    #[allow(dead_code)]
+    fn print_dots(&self) {
+        print_shapes(&self.dots);
+    }
+    #[allow(dead_code)]
+    fn print_images(&self) {
+        for image in &self.images {
+            tools::print_image(image);
+            println!();
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn print_shapes(shapes: &Option<Vec<Vec<Shape>>>) {
+    if let Some(shapes) = shapes {
+        for (i, shapes) in shapes.iter().enumerate() {
+            println!("Shapes for example {}", i);
+            for shape in shapes {
+                shape.print();
+                println!();
+            }
+        }
+    }
 }
 
 fn rotate_used_colors(s: &mut SolverState) -> Res<()> {
@@ -207,10 +253,21 @@ fn rotate_used_colors(s: &mut SolverState) -> Res<()> {
 
 fn pick_shape_by_color(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
-    let shape =
-        tools::shape_by_color(&shapes, s.used_colors[0]).ok_or("should have been a shape")?;
+    let color = s.used_colors.get(0).ok_or("no used colors")?;
+    let shape = tools::shape_by_color(&shapes, *color).ok_or("should have been a shape")?;
     init_shape_vec(s.images.len(), &mut s.picked_shapes);
     s.picked_shapes.as_mut().unwrap()[i] = vec![shape.clone()];
+    Ok(())
+}
+
+fn filter_shapes_by_color(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &mut s.shapes.as_mut().expect("must have shapes")[i];
+    let color = s.used_colors.get(0).ok_or("no used colors")?;
+    s.shapes.as_mut().unwrap()[i] = shapes
+        .iter()
+        .filter(|shape| shape.color() == *color)
+        .cloned()
+        .collect();
     Ok(())
 }
 
@@ -262,6 +319,71 @@ fn draw_shape_where_non_empty(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+fn delete_shapes_touching_border(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &mut s.shapes.as_mut().expect("must have shapes")[i];
+    *shapes = shapes
+        .iter()
+        .filter(|shape| !shape.is_touching_border(&s.images[i]))
+        .cloned()
+        .collect();
+    Ok(())
+}
+
+fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
+    // Get color from first output_image.
+    let first_shape = &s.shapes.as_ref().expect("must have shapes")[0]
+        .get(0)
+        .ok_or("no shapes")?;
+    let color = tools::lookup_in_image(
+        &s.output_images[0],
+        first_shape.cells[0].x,
+        first_shape.cells[0].y,
+    )?;
+    // Fail the operation if any shape in any output has a different color.
+    for (i, image) in s.output_images.iter_mut().enumerate() {
+        for shape in &mut s.shapes.as_mut().expect("must have shapes")[i] {
+            let cell = &shape.cells[0];
+            if let Ok(c) = tools::lookup_in_image(image, cell.x, cell.y) {
+                if c != color {
+                    return Err("output shapes have different colors");
+                }
+            }
+        }
+    }
+    // Recolor shapes.
+    for shapes in s.shapes.as_mut().expect("must have shapes") {
+        for shape in shapes {
+            shape.recolor(color);
+        }
+    }
+    Ok(())
+}
+
+fn draw_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &s.shapes.as_ref().expect("must have shapes")[i];
+    for shape in shapes {
+        tools::draw_shape(&mut s.images[i], shape);
+    }
+    Ok(())
+}
+
+fn background_as_normal_color(s: &mut SolverState) -> Res<()> {
+    let mut mapping = vec![-1; COLORS.len()];
+    for i in 0..COLORS.len() {
+        if s.used_colors.contains(&(i as i32)) {
+            mapping[i] = i as i32;
+        }
+    }
+    mapping[0] = 11;
+    s.apply(|s: &mut SolverState, i: usize| {
+        remap_colors(s, i, &mapping);
+        Ok(())
+    })?;
+    s.color_mapping = Some(vec![mapping; s.images.len()]);
+    s.used_colors = tools::get_used_colors(&s.images);
+    Ok(())
+}
+
 fn solve_example_7(task: &Task) -> Res<Vec<Example>> {
     let mut state = SolverState::new(task);
     state.apply(find_colorsets)?;
@@ -272,7 +394,6 @@ fn solve_example_7(task: &Task) -> Res<Vec<Example>> {
     state.apply(pick_shape_by_color)?;
     save_picked_shapes(&mut state)?;
     rotate_used_colors(&mut state)?;
-    // TODO: We shouldn't need to find shapes again!
     state.apply(pick_shape_by_color)?;
     state.apply(move_picked_shape_to_saved_shape)?;
     state.apply(unmap_colors)?;
@@ -299,5 +420,23 @@ fn solve_example_0(task: &Task) -> Res<Vec<Example>> {
     Ok(state.get_results())
 }
 
+fn solve_example_1(task: &Task) -> Res<Vec<Example>> {
+    let mut state = SolverState::new(task);
+    background_as_normal_color(&mut state)?;
+    rotate_used_colors(&mut state)?;
+    state.apply(find_shapes)?;
+    state.apply(filter_shapes_by_color)?;
+    state.apply(delete_shapes_touching_border)?;
+    recolor_shapes_per_output(&mut state)?;
+    state.apply(draw_shapes)?;
+    state.apply(unmap_colors)?;
+    Ok(state.get_results())
+}
+
 type Solver = fn(&Task) -> Res<Vec<Example>>;
-pub const SOLVERS: &[Solver] = &[solve_example_0, solve_example_7, solve_example_11];
+pub const SOLVERS: &[Solver] = &[
+    solve_example_0,
+    solve_example_1,
+    solve_example_7,
+    solve_example_11,
+];

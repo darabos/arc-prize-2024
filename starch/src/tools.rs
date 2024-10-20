@@ -1,4 +1,5 @@
 use colored;
+use colored::Colorize;
 
 type Color = i32;
 
@@ -67,6 +68,43 @@ pub const LEFT: Vec2 = Vec2 { x: -1, y: 0 };
 pub const RIGHT: Vec2 = Vec2 { x: 1, y: 0 };
 pub const DIRECTIONS: [Vec2; 4] = [UP, DOWN, LEFT, RIGHT];
 
+pub fn print_color(color: i32) {
+    if color == 0 {
+        print!(" ");
+    } else {
+        print!("{}", "█".color(COLORS[color as usize]));
+    }
+}
+
+pub fn print_image(image: &Image) {
+    for row in image {
+        for cell in row {
+            print_color(*cell);
+        }
+        println!();
+    }
+}
+
+pub fn print_example(example: &Example) {
+    println!("Input:");
+    print_image(&example.input);
+    if !example.output.is_empty() {
+        println!("Output:");
+        print_image(&example.output);
+    }
+}
+
+pub fn print_task(task: &Task) {
+    println!("Train:");
+    for example in &task.train {
+        print_example(example);
+    }
+    println!("Test:");
+    for example in &task.test {
+        print_example(example);
+    }
+}
+
 pub fn find_shapes_in_image(image: &Image) -> Vec<Shape> {
     let mut shapes = vec![];
     let mut visited = vec![vec![false; image[0].len()]; image.len()];
@@ -91,21 +129,20 @@ pub fn find_shapes_in_image(image: &Image) -> Vec<Shape> {
                 for dir in &DIRECTIONS {
                     let nx = x + dir.x;
                     let ny = y + dir.y;
-                    if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
-                        continue;
+                    if let Ok(nc) = lookup_in_image(image, nx, ny) {
+                        if nc != color {
+                            continue;
+                        }
+                        if visited[ny as usize][nx as usize] {
+                            continue;
+                        }
+                        visited[ny as usize][nx as usize] = true;
+                        cells.push(Pixel {
+                            x: nx,
+                            y: ny,
+                            color,
+                        });
                     }
-                    if visited[ny as usize][nx as usize] {
-                        continue;
-                    }
-                    if image[ny as usize][nx as usize] != color {
-                        continue;
-                    }
-                    visited[ny as usize][nx as usize] = true;
-                    cells.push(Pixel {
-                        x: nx,
-                        y: ny,
-                        color,
-                    });
                 }
                 i += 1;
             }
@@ -257,13 +294,11 @@ impl Shape {
 
     pub fn draw_where_non_empty(&self, image: &mut Image) {
         for Pixel { x, y, color } in &self.cells {
-            if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
-                continue;
+            if let Ok(c) = lookup_in_image(image, *x, *y) {
+                if c != 0 {
+                    image[*y as usize][*x as usize] = *color;
+                }
             }
-            if image[*y as usize][*x as usize] == 0 {
-                continue;
-            }
-            image[*y as usize][*x as usize] = *color;
         }
     }
 
@@ -281,33 +316,50 @@ impl Shape {
         }
         Shape { cells }
     }
+
+    pub fn is_touching_border(&self, image: &Image) -> bool {
+        for Pixel { x, y, color: _ } in &self.cells {
+            if *x == 0 || *y == 0 || *x == image[0].len() as i32 - 1 || *y == image.len() as i32 - 1
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[allow(dead_code)]
+    pub fn print(&self) {
+        let box_ = self.bounding_box();
+        for y in box_.top..=box_.bottom {
+            for x in box_.left..=box_.right {
+                print_color(self.color_at(x, y).unwrap_or(0));
+            }
+            println!();
+        }
+    }
 }
 
 /// Draws the image in the given color.
-pub fn paint_shape(image: &Image, shape: &Shape, color: i32) -> Image {
-    let mut new_image = image.clone();
+pub fn paint_shape(image: &mut Image, shape: &Shape, color: i32) {
     for Pixel { x, y, color: _ } in &shape.cells {
         if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
             continue;
         }
-        new_image[*y as usize][*x as usize] = color;
+        image[*y as usize][*x as usize] = color;
     }
-    new_image
 }
 
-pub fn remove_shape(image: &Image, shape: &Shape) -> Image {
+pub fn remove_shape(image: &mut Image, shape: &Shape) {
     paint_shape(image, &shape, 0)
 }
 /// Draws the shape in its original color.
-pub fn draw_shape(image: &Image, shape: &Shape) -> Image {
-    let mut new_image = image.clone();
+pub fn draw_shape(image: &mut Image, shape: &Shape) {
     for Pixel { x, y, color } in &shape.cells {
         if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
             continue;
         }
-        new_image[*y as usize][*x as usize] = *color;
+        image[*y as usize][*x as usize] = *color;
     }
-    new_image
 }
 
 // Moves the first shape pixel by pixel. (Not using bounding boxes.)
@@ -341,8 +393,8 @@ pub fn move_shape_to_shape_in_direction(
         x: dir.x * distance,
         y: dir.y * distance,
     });
-    new_image = remove_shape(&new_image, to_move);
-    new_image = draw_shape(&new_image, &moved);
+    remove_shape(&mut new_image, to_move);
+    draw_shape(&mut new_image, &moved);
     Ok(new_image)
 }
 
@@ -384,6 +436,13 @@ pub fn remap_colors_in_image(image: &mut Image, mapping: &[i32]) {
     }
 }
 
+pub fn lookup_in_image(image: &Image, x: i32, y: i32) -> Res<i32> {
+    if x < 0 || y < 0 || x >= image[0].len() as i32 || y >= image.len() as i32 {
+        return Err("out of bounds");
+    }
+    Ok(image[y as usize][x as usize])
+}
+
 /// Returns the total number of non-zero pixels in the boxes of the given radius
 /// around the dots.
 pub fn measure_boxes_with_radius(image: &Image, dots: &Shape, radius: i32) -> usize {
@@ -393,11 +452,10 @@ pub fn measure_boxes_with_radius(image: &Image, dots: &Shape, radius: i32) -> us
             for dy in -radius..=radius {
                 let nx = x + dx;
                 let ny = y + dy;
-                if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
-                    continue;
-                }
-                if image[ny as usize][nx as usize] != 0 {
-                    count += 1;
+                if let Ok(color) = lookup_in_image(image, nx, ny) {
+                    if color != 0 {
+                        count += 1;
+                    }
                 }
             }
         }
@@ -411,14 +469,15 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
         for dy in -radius..=radius {
             let nx = dot.x + dx;
             let ny = dot.y + dy;
-            if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
-                continue;
+            if let Ok(color) = lookup_in_image(image, nx, ny) {
+                if color != 0 {
+                    cells.push(Pixel {
+                        x: dx,
+                        y: dy,
+                        color,
+                    });
+                }
             }
-            cells.push(Pixel {
-                x: dx,
-                y: dy,
-                color: image[ny as usize][nx as usize],
-            });
         }
     }
     Shape { cells }
