@@ -61,6 +61,7 @@ pub struct Pixel {
 #[derive(Clone, Default)]
 pub struct Shape {
     pub cells: Vec<Pixel>,
+    pub has_relative_colors: bool, // Color numbers are indexes into state.colors.
 }
 
 pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
@@ -70,8 +71,10 @@ pub const RIGHT: Vec2 = Vec2 { x: 1, y: 0 };
 pub const DIRECTIONS: [Vec2; 4] = [UP, DOWN, LEFT, RIGHT];
 
 pub fn print_color(color: i32) {
-    if color == 0 {
+    if color < 0 {
         print!(" ");
+    } else if color == 0 {
+        print!("{}", "·".color(colored::Color::Black));
     } else {
         print!("{}", "█".color(COLORS[color as usize]));
     }
@@ -106,7 +109,7 @@ pub fn print_task(task: &Task) {
     }
 }
 
-pub fn find_shapes_in_image(image: &Image) -> Vec<Rc<Shape>> {
+pub fn find_shapes_in_image(image: &Image, exclude_background: bool) -> Vec<Rc<Shape>> {
     let mut shapes = vec![];
     let mut visited = vec![vec![false; image[0].len()]; image.len()];
     for y in 0..image.len() {
@@ -115,7 +118,7 @@ pub fn find_shapes_in_image(image: &Image) -> Vec<Rc<Shape>> {
                 continue;
             }
             let color = image[y][x];
-            if color == 0 {
+            if color == 0 && exclude_background {
                 continue;
             }
             let mut cells = vec![Pixel {
@@ -147,7 +150,10 @@ pub fn find_shapes_in_image(image: &Image) -> Vec<Rc<Shape>> {
                 }
                 i += 1;
             }
-            shapes.push(Rc::new(Shape { cells }));
+            shapes.push(Rc::new(Shape {
+                cells,
+                ..Default::default()
+            }));
         }
     }
     shapes
@@ -265,7 +271,10 @@ impl Shape {
                 color: *color,
             })
             .collect();
-        Shape { cells }
+        Shape {
+            cells,
+            ..Default::default()
+        }
     }
 
     pub fn recolor(&mut self, color: i32) {
@@ -315,7 +324,10 @@ impl Shape {
                 });
             }
         }
-        Shape { cells }
+        Shape {
+            cells,
+            ..Default::default()
+        }
     }
 
     pub fn is_touching_border(&self, image: &Image) -> bool {
@@ -333,11 +345,26 @@ impl Shape {
         let box_ = self.bounding_box();
         for y in box_.top..=box_.bottom {
             for x in box_.left..=box_.right {
-                print_color(self.color_at(x, y).unwrap_or(0));
+                print_color(self.color_at(x, y).unwrap_or(-1));
             }
             println!();
         }
     }
+
+    pub fn use_relative_colors(&mut self, reverse_colors: &[i32]) {
+        for cell in &mut self.cells {
+            cell.color = reverse_colors[cell.color as usize];
+        }
+        self.has_relative_colors = true;
+    }
+}
+
+pub fn reverse_colors(colors: &[i32]) -> Vec<i32> {
+    let mut reverse_colors = vec![-1; colors.len()];
+    for (i, &color) in colors.iter().enumerate() {
+        reverse_colors[color as usize] = i as i32;
+    }
+    reverse_colors
 }
 
 /// Draws the image in the given color.
@@ -360,6 +387,15 @@ pub fn draw_shape(image: &mut Image, shape: &Shape) {
             continue;
         }
         image[*y as usize][*x as usize] = *color;
+    }
+}
+
+pub fn draw_shape_with_colors(image: &mut Image, shape: &Shape, colors: &[i32]) {
+    for Pixel { x, y, color } in &shape.cells {
+        if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
+            continue;
+        }
+        image[*y as usize][*x as usize] = colors[*color as usize];
     }
 }
 
@@ -483,7 +519,10 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
             }
         }
     }
-    Shape { cells }
+    Shape {
+        cells,
+        ..Default::default()
+    }
 }
 
 pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Shape {
@@ -504,14 +543,30 @@ pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Shape {
     get_pattern_around(&images[0], &dots[0].cells[0].pos(), radius)
 }
 
-pub fn draw_shape_at(image: &mut Image, dot: &Vec2, shape: &Shape) {
+pub fn draw_shape_at(image: &mut Image, shape: &Shape, pos: &Vec2) {
     for Pixel { x, y, color } in &shape.cells {
-        let nx = dot.x + x;
-        let ny = dot.y + y;
+        let nx = pos.x + x;
+        let ny = pos.y + y;
         if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
             continue;
         }
         image[ny as usize][nx as usize] = *color;
+    }
+}
+
+pub fn draw_shape_with_relative_colors_at(
+    image: &mut Image,
+    shape: &Shape,
+    colors: &[i32],
+    pos: &Vec2,
+) {
+    for Pixel { x, y, color } in &shape.cells {
+        let nx = pos.x + x;
+        let ny = pos.y + y;
+        if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+            continue;
+        }
+        image[ny as usize][nx as usize] = colors[*color as usize];
     }
 }
 

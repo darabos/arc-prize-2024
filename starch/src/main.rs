@@ -4,7 +4,7 @@ use std::collections::HashMap as Map;
 use std::fs;
 mod solvers;
 mod tools;
-use tools::{Example, Image, Task, COLORS};
+use tools::{Example, Image, Task};
 
 pub fn parse_image(image: &serde_json::Value) -> Image {
     image
@@ -75,15 +75,15 @@ fn main() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // for (name, task) in tasks.iter().filter(|(k, _)| *k == "00d62c1b") {
+    // for (name, task) in tasks.iter().filter(|(k, _)| *k == "05f2a901") {
     for (name, task) in &tasks {
         // println!("Task: {}", name);
         // tools::print_task(task);
-        // for solver in &solvers::SOLVERS[1..2] {
+        // for solver in &solvers::SOLVERS[0..1] {
         for solver in solvers::SOLVERS {
             let solutions = solver(task);
             if let Err(_error) = solutions {
-                // println!("{}: {}", name, error.red());
+                // println!("{}: {}", name, _error.red());
                 continue;
             }
             let solutions = solutions.unwrap()[task.train.len()..].to_vec();
@@ -94,6 +94,7 @@ fn main() {
             for i in 0..ref_images.len() {
                 let ref_image = &ref_images[i];
                 let image = &solutions[i].output;
+                // tools::print_image(image);
                 if !tools::compare_images(ref_image, image) {
                     all_correct = false;
                     break;
