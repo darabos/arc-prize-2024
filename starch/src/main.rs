@@ -75,18 +75,19 @@ fn main() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // for (name, task) in tasks.iter().filter(|(k, _)| *k == "025d127b") {
+    // for (name, task) in tasks.iter().filter(|(k, _)| *k == "017c7c7b") {
     for (name, task) in &tasks {
         // println!("Task: {}", name);
         // tools::print_task(task);
+        let state = solvers::SolverState::new(task);
         // for solver in &solvers::SOLVERS[0..1] {
         for solver in solvers::SOLVERS {
-            let solutions = solver(task);
-            if let Err(_error) = solutions {
+            let mut s = state.clone();
+            if let Err(_error) = solver(&mut s) {
                 // println!("{}: {}", name, _error.red());
                 continue;
             }
-            let solutions = solutions.unwrap()[task.train.len()..].to_vec();
+            let solutions = s.get_results()[task.train.len()..].to_vec();
             let ref_images = ref_solutions
                 .get(name)
                 .expect("Should have been a solution");

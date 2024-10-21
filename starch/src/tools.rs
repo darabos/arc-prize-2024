@@ -120,7 +120,7 @@ pub fn resize_canvas(image: &Image, width: usize, height: usize) -> Image {
     new_image
 }
 
-pub fn find_shapes_in_image(image: &Image, exclude_background: bool) -> Vec<Rc<Shape>> {
+pub fn find_shapes_in_image(image: &Image) -> Vec<Rc<Shape>> {
     let mut shapes = vec![];
     let mut visited = vec![vec![false; image[0].len()]; image.len()];
     for y in 0..image.len() {
@@ -129,9 +129,6 @@ pub fn find_shapes_in_image(image: &Image, exclude_background: bool) -> Vec<Rc<S
                 continue;
             }
             let color = image[y][x];
-            if color == 0 && exclude_background {
-                continue;
-            }
             let mut cells = vec![Pixel {
                 x: x as i32,
                 y: y as i32,
@@ -165,6 +162,16 @@ pub fn find_shapes_in_image(image: &Image, exclude_background: bool) -> Vec<Rc<S
         }
     }
     shapes
+}
+
+pub fn discard_background_shapes_touching_border(
+    image: &Image,
+    shapes: Vec<Rc<Shape>>,
+) -> Vec<Rc<Shape>> {
+    shapes
+        .into_iter()
+        .filter(|shape| shape.color() != 0 || !shape.is_touching_border(&image))
+        .collect()
 }
 
 /// Finds "colorsets" in the image. A colorset is a set of all pixels with the same color.
@@ -240,6 +247,12 @@ impl Rect {
             x: self.right - 1,
             y: self.bottom - 1,
         }
+    }
+    pub fn width(&self) -> i32 {
+        self.right - self.left + 1
+    }
+    pub fn height(&self) -> i32 {
+        self.bottom - self.top + 1
     }
 }
 
