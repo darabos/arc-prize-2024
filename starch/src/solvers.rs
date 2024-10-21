@@ -122,6 +122,27 @@ fn load_shapes(s: &mut SolverState) -> Res<()> {
     load_earlier_shapes(s, 0)
 }
 
+fn load_shapes_except_current_shapes(s: &mut SolverState) -> Res<()> {
+    let excluded_shapes = s.shapes.take().ok_or("must have shapes")?;
+    load_shapes(s)?;
+    s.shapes = Some(
+        s.shapes
+            .take()
+            .ok_or("must have shapes")?
+            .into_iter()
+            .zip(excluded_shapes)
+            .map(|(shapes, excluded)| {
+                shapes
+                    .iter()
+                    .filter(|shape| !excluded.contains(shape))
+                    .cloned()
+                    .collect()
+            })
+            .collect(),
+    );
+    Ok(())
+}
+
 fn save_whole_image(s: &mut SolverState) -> Res<()> {
     s.saved_images.push(s.images.clone());
     Ok(())
@@ -480,7 +501,7 @@ fn pick_bottom_right_shape_per_color(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
-fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
+fn move_shapes_per_output_shapes(s: &mut SolverState) -> Res<()> {
     let shapes0 = &s.shapes.as_ref().ok_or(err!("must have shapes"))?[0];
     let output_shapes0 = tools::find_shapes_in_image(&s.output_images[0], true);
     let relative_output_shapes0: Shapes = output_shapes0
@@ -514,7 +535,7 @@ fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
             }
         }
     }
-    // Move shapes with move_by
+    // Move shapes.
     for i in 0..s.images.len() {
         let shapes = &mut s.shapes.as_mut().ok_or(err!("must have shapes"))?[i];
         *shapes = shapes
@@ -523,6 +544,37 @@ fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
             .collect();
     }
     Ok(())
+}
+
+fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
+    let shapes = &s.shapes.as_ref().ok_or(err!("must have shapes"))?;
+    let outputs = &s.output_images;
+    for distance in 1..5 {
+        for direction in tools::DIRECTIONS {
+            let mut correct = true;
+            let offset = distance * direction;
+            for i in 0..outputs.len() {
+                for shape in &shapes[i] {
+                    if !shape.match_image_when_moved_by(&outputs[i], offset) {
+                        correct = false;
+                        break;
+                    }
+                }
+            }
+            if correct {
+                for i in 0..s.images.len() {
+                    let mut new_image = (*s.images[i]).clone();
+                    for shape in &shapes[i] {
+                        tools::remove_shape(&mut new_image, shape);
+                        tools::draw_shape_at(&mut new_image, shape, offset);
+                    }
+                    s.images[i] = Rc::new(new_image);
+                }
+                return Ok(());
+            }
+        }
+    }
+    Err(err!("no match found"))
 }
 
 fn solve_example_7(task: &Task) -> Res<Vec<Example>> {
@@ -583,7 +635,9 @@ fn solve_example_2(task: &Task) -> Res<Vec<Example>> {
 fn solve_example_3(task: &Task) -> Res<Vec<Example>> {
     let mut state = SolverState::new(task);
     state.apply(find_shapes)?;
+    save_shapes(&mut state)?;
     state.apply(pick_bottom_right_shape_per_color)?;
+    load_shapes_except_current_shapes(&mut state)?;
     move_shapes_per_output(&mut state)?;
     Ok(state.get_results())
 }

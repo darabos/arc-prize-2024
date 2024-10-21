@@ -218,6 +218,15 @@ impl std::ops::Sub for Pixel {
         }
     }
 }
+impl std::ops::Mul<Vec2> for i32 {
+    type Output = Vec2;
+    fn mul(self, other: Vec2) -> Vec2 {
+        Vec2 {
+            x: self * other.x,
+            y: self * other.y,
+        }
+    }
+}
 
 pub struct Rect {
     pub top: i32,
@@ -304,6 +313,25 @@ impl Shape {
             })
             .collect();
         Shape { cells, ..*self }
+    }
+    pub fn move_by_mut(&mut self, vector: Vec2) {
+        for Pixel { x, y, color } in &mut self.cells {
+            *x += vector.x;
+            *y += vector.y;
+        }
+    }
+    pub fn match_image_when_moved_by(&self, image: &Image, vector: Vec2) -> bool {
+        for Pixel { x, y, color } in &self.cells {
+            let nx = x + vector.x;
+            let ny = y + vector.y;
+            if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+                return false;
+            }
+            if image[ny as usize][nx as usize] != *color {
+                return false;
+            }
+        }
+        true
     }
 
     pub fn recolor(&mut self, color: i32) {
@@ -654,7 +682,7 @@ pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Shape {
     get_pattern_around(&images[0], &dots[0].cells[0].pos(), radius)
 }
 
-pub fn draw_shape_at(image: &mut Image, shape: &Shape, pos: &Vec2) {
+pub fn draw_shape_at(image: &mut Image, shape: &Shape, pos: Vec2) {
     for Pixel { x, y, color } in &shape.cells {
         let nx = pos.x + x;
         let ny = pos.y + y;
