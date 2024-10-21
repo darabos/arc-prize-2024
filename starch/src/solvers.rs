@@ -100,17 +100,26 @@ fn save_shapes(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
-fn load_earlier_shapes(s: &mut SolverState) -> Res<()> {
-    if s.saved_shapes.len() < 2 {
+fn load_earlier_shapes(s: &mut SolverState, offset: usize) -> Res<()> {
+    if s.saved_shapes.len() - 1 < offset {
         return Err("no saved shapes");
     }
     s.shapes = Some(
         s.saved_shapes
-            .get(s.saved_shapes.len() - 2)
+            .get(s.saved_shapes.len() - 1 - offset)
             .unwrap()
             .clone(),
     );
     Ok(())
+}
+
+fn save_shapes_and_load_previous(s: &mut SolverState) -> Res<()> {
+    save_shapes(s)?;
+    load_earlier_shapes(s, 1)
+}
+
+fn load_shapes(s: &mut SolverState) -> Res<()> {
+    load_earlier_shapes(s, 0)
 }
 
 fn save_whole_image(s: &mut SolverState) -> Res<()> {
@@ -442,6 +451,31 @@ fn use_output_size(s: &mut SolverState) -> Res<()> {
     })
 }
 
+fn pick_bottom_right_shape(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &mut s.shapes.as_mut().ok_or(err!("must have shapes"))?[i];
+    let shape = shapes
+        .iter()
+        .max_by_key(|shape| shape.cells[0].y)
+        .ok_or(err!("no shapes"))?;
+    *shapes = vec![shape.clone()];
+    Ok(())
+}
+
+fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
+    let shapes = &s.shapes.as_ref().ok_or(err!("must have shapes"))?[0];
+    let output_shapes = tools::find_shapes_in_image(&s.output_images[0], true);
+    let relative_output_shapes: Shapes = output_shapes
+        .into_iter()
+        .map(|shape| shape.to_relative_pos().into())
+        .collect();
+    // Figure out the offset.
+    let in0 = shapes.get(0).ok_or(err!("no shape"))?.to_relative_pos();
+    let out0 = in0
+        .find_matching_shape(&relative_output_shapes)
+        .ok_or(err!("no match"))?;
+    Ok(())
+}
+
 fn solve_example_7(task: &Task) -> Res<Vec<Example>> {
     let mut state = SolverState::new(task);
     state.apply(find_shapes)?;
@@ -450,8 +484,7 @@ fn solve_example_7(task: &Task) -> Res<Vec<Example>> {
     state.apply(use_next_color)?;
     save_shapes(&mut state)?;
     state.apply(filter_shapes_by_color)?;
-    save_shapes(&mut state)?;
-    load_earlier_shapes(&mut state)?;
+    save_shapes_and_load_previous(&mut state)?;
     state.apply(use_previous_color)?;
     state.apply(filter_shapes_by_color)?;
     state.apply(move_shapes_to_saved_shape)?;
@@ -498,11 +531,22 @@ fn solve_example_2(task: &Task) -> Res<Vec<Example>> {
     Ok(state.get_results())
 }
 
+fn solve_example_3(task: &Task) -> Res<Vec<Example>> {
+    let mut state = SolverState::new(task);
+    state.apply(find_shapes)?;
+    // TODO: Do this for all colors.
+    state.apply(filter_shapes_by_color)?;
+    state.apply(pick_bottom_right_shape)?;
+    move_shapes_per_output(&mut state)?;
+    Ok(state.get_results())
+}
+
 type Solver = fn(&Task) -> Res<Vec<Example>>;
 pub const SOLVERS: &[Solver] = &[
     solve_example_0,
     solve_example_1,
     solve_example_2,
+    solve_example_3,
     solve_example_7,
     solve_example_11,
 ];

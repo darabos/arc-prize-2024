@@ -60,8 +60,9 @@ pub struct Pixel {
 
 #[derive(Clone, Default)]
 pub struct Shape {
-    pub cells: Vec<Pixel>,
-    pub has_relative_colors: bool, // Color numbers are indexes into state.colors.
+    pub cells: Vec<Pixel>,            // Always sorted.
+    pub has_relative_colors: bool,    // Color numbers are indexes into state.colors.
+    pub has_relative_positions: bool, // x/y are relative to the top-left corner of the shape.
 }
 
 pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
@@ -160,10 +161,7 @@ pub fn find_shapes_in_image(image: &Image, exclude_background: bool) -> Vec<Rc<S
                 }
                 i += 1;
             }
-            shapes.push(Rc::new(Shape {
-                cells,
-                ..Default::default()
-            }));
+            shapes.push(Rc::new(Shape::new(cells)));
         }
     }
     shapes
@@ -220,6 +218,13 @@ pub struct Rect {
 }
 
 impl Shape {
+    pub fn new(mut cells: Vec<Pixel>) -> Shape {
+        cells.sort();
+        Shape {
+            cells,
+            ..Default::default()
+        }
+    }
     pub fn bounding_box(&self) -> Rect {
         let mut top = std::i32::MAX;
         let mut left = std::i32::MAX;
@@ -281,10 +286,7 @@ impl Shape {
                 color: *color,
             })
             .collect();
-        Shape {
-            cells,
-            ..Default::default()
-        }
+        Shape { cells, ..*self }
     }
 
     pub fn recolor(&mut self, color: i32) {
@@ -316,7 +318,7 @@ impl Shape {
         }
         Shape {
             cells: new_cells,
-            ..Default::default()
+            ..*self
         }
     }
 
@@ -334,7 +336,7 @@ impl Shape {
         }
         Shape {
             cells: new_cells,
-            ..Default::default()
+            ..*self
         }
     }
 
@@ -350,8 +352,8 @@ impl Shape {
 
     pub fn from_image(image: &Image) -> Shape {
         let mut cells = vec![];
-        for y in 0..image.len() {
-            for x in 0..image[0].len() {
+        for x in 0..image[0].len() {
+            for y in 0..image.len() {
                 let color = image[y][x];
                 cells.push(Pixel {
                     x: x as i32,
@@ -402,6 +404,29 @@ impl Shape {
         }
         true
     }
+
+    pub fn to_relative_pos(&self) -> Shape {
+        let min_x = self.cells.iter().map(|cell| cell.x).min().unwrap();
+        let min_y = self.cells.iter().map(|cell| cell.y).min().unwrap();
+        let cells = self
+            .cells
+            .iter()
+            .map(|Pixel { x, y, color }| Pixel {
+                x: x - min_x,
+                y: y - min_y,
+                color: *color,
+            })
+            .collect();
+        Shape {
+            cells,
+            has_relative_positions: true,
+            ..*self
+        }
+    }
+
+    pub fn find_matching_shape(&self, shapes: &[Rc<Shape>]) -> Option<Rc<Shape>> {
+        shapes.iter().find(|shape| self == **shape).cloned()
+    }
 }
 
 impl PartialEq for Shape {
@@ -412,11 +437,7 @@ impl PartialEq for Shape {
         if self.cells.len() != other.cells.len() {
             return false;
         }
-        let mut sc = self.cells.clone();
-        sc.sort();
-        let mut oc = other.cells.clone();
-        oc.sort();
-        for (a, b) in sc.iter().zip(oc.iter()) {
+        for (a, b) in self.cells.iter().zip(other.cells.iter()) {
             if a.x != b.x || a.y != b.y || a.color != b.color {
                 return false;
             }
