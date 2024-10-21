@@ -455,24 +455,73 @@ fn pick_bottom_right_shape(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes.as_mut().ok_or(err!("must have shapes"))?[i];
     let shape = shapes
         .iter()
-        .max_by_key(|shape| shape.cells[0].y)
+        .max_by_key(|shape| shape.cells[0])
         .ok_or(err!("no shapes"))?;
     *shapes = vec![shape.clone()];
     Ok(())
 }
 
+fn pick_bottom_right_shape_per_color(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &mut s.shapes.as_mut().ok_or(err!("must have shapes"))?[i];
+    let mut new_shapes = vec![];
+    for color in &s.colors[i] {
+        let shape = shapes
+            .iter()
+            .filter(|shape| shape.color() == *color)
+            .max_by_key(|shape| shape.bounding_box().bottom_right());
+        if let Some(shape) = shape {
+            new_shapes.push(shape.clone());
+        }
+    }
+    if new_shapes.is_empty() {
+        return Err("no shapes");
+    }
+    *shapes = new_shapes;
+    Ok(())
+}
+
 fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
-    let shapes = &s.shapes.as_ref().ok_or(err!("must have shapes"))?[0];
-    let output_shapes = tools::find_shapes_in_image(&s.output_images[0], true);
-    let relative_output_shapes: Shapes = output_shapes
-        .into_iter()
+    let shapes0 = &s.shapes.as_ref().ok_or(err!("must have shapes"))?[0];
+    let output_shapes0 = tools::find_shapes_in_image(&s.output_images[0], true);
+    let relative_output_shapes0: Shapes = output_shapes0
+        .iter()
         .map(|shape| shape.to_relative_pos().into())
         .collect();
     // Figure out the offset.
-    let in0 = shapes.get(0).ok_or(err!("no shape"))?.to_relative_pos();
-    let out0 = in0
-        .find_matching_shape(&relative_output_shapes)
+    let in00 = shapes0.get(0).ok_or(err!("no shape"))?;
+    let out0_index = in00
+        .to_relative_pos()
+        .find_matching_shape_index(&relative_output_shapes0)
         .ok_or(err!("no match"))?;
+    let out0 = &output_shapes0[out0_index];
+    let offset = in00.cells[0] - out0.cells[0];
+    // Confirm that this offset is correct for all shapes in all examples.
+    for i in 0..s.output_images.len() {
+        let shapes = &s.shapes.as_ref().ok_or(err!("must have shapes"))?[i];
+        let output_shapes = tools::find_shapes_in_image(&s.output_images[i], true);
+        let relative_output_shapes: Shapes = output_shapes
+            .iter()
+            .map(|shape| shape.to_relative_pos().into())
+            .collect();
+        for shape in shapes {
+            let out_index = shape
+                .to_relative_pos()
+                .find_matching_shape_index(&relative_output_shapes)
+                .ok_or(err!("no match"))?;
+            let out = &output_shapes[out_index];
+            if shape.cells[0] - out.cells[0] != offset {
+                return Err(err!("offsets don't match"));
+            }
+        }
+    }
+    // Move shapes with move_by
+    for i in 0..s.images.len() {
+        let shapes = &mut s.shapes.as_mut().ok_or(err!("must have shapes"))?[i];
+        *shapes = shapes
+            .iter()
+            .map(|shape| shape.move_by(offset).into())
+            .collect();
+    }
     Ok(())
 }
 
@@ -534,9 +583,7 @@ fn solve_example_2(task: &Task) -> Res<Vec<Example>> {
 fn solve_example_3(task: &Task) -> Res<Vec<Example>> {
     let mut state = SolverState::new(task);
     state.apply(find_shapes)?;
-    // TODO: Do this for all colors.
-    state.apply(filter_shapes_by_color)?;
-    state.apply(pick_bottom_right_shape)?;
+    state.apply(pick_bottom_right_shape_per_color)?;
     move_shapes_per_output(&mut state)?;
     Ok(state.get_results())
 }

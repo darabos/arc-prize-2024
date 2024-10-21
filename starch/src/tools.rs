@@ -46,12 +46,12 @@ pub struct Example {
 
 pub type Res<T> = Result<T, &'static str>;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Vec2 {
     pub x: i32,
     pub y: i32,
 }
-#[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Pixel {
     pub x: i32,
     pub y: i32,
@@ -209,12 +209,29 @@ impl Pixel {
         }
     }
 }
+impl std::ops::Sub for Pixel {
+    type Output = Vec2;
+    fn sub(self, other: Pixel) -> Vec2 {
+        Vec2 {
+            x: self.x - other.x,
+            y: self.y - other.y,
+        }
+    }
+}
 
 pub struct Rect {
     pub top: i32,
     pub left: i32,
     pub bottom: i32,
     pub right: i32,
+}
+impl Rect {
+    pub fn bottom_right(&self) -> Vec2 {
+        Vec2 {
+            x: self.right - 1,
+            y: self.bottom - 1,
+        }
+    }
 }
 
 impl Shape {
@@ -424,8 +441,13 @@ impl Shape {
         }
     }
 
-    pub fn find_matching_shape(&self, shapes: &[Rc<Shape>]) -> Option<Rc<Shape>> {
-        shapes.iter().find(|shape| self == **shape).cloned()
+    pub fn find_matching_shape_index(&self, shapes: &[Rc<Shape>]) -> Option<usize> {
+        for (i, shape) in shapes.iter().enumerate() {
+            if self == shape.as_ref() {
+                return Some(i);
+            }
+        }
+        None
     }
 }
 
