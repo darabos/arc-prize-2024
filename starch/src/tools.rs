@@ -51,7 +51,7 @@ pub struct Vec2 {
     pub x: i32,
     pub y: i32,
 }
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Pixel {
     pub x: i32,
     pub y: i32,
@@ -107,6 +107,16 @@ pub fn print_task(task: &Task) {
     for example in &task.test {
         print_example(example);
     }
+}
+
+pub fn resize_canvas(image: &Image, width: usize, height: usize) -> Image {
+    let mut new_image = vec![vec![0; width]; height];
+    for y in 0..image.len().min(height) {
+        for x in 0..image[0].len().min(width) {
+            new_image[y][x] = image[y][x];
+        }
+    }
+    new_image
 }
 
 pub fn find_shapes_in_image(image: &Image, exclude_background: bool) -> Vec<Rc<Shape>> {
@@ -224,8 +234,8 @@ impl Shape {
         Rect {
             top,
             left,
-            bottom,
-            right,
+            bottom: bottom + 1,
+            right: right + 1,
         }
     }
 
@@ -286,20 +296,46 @@ impl Shape {
         self.cells[0].color
     }
 
-    pub fn tile(&mut self, x_step: usize, x_tiles: usize, y_step: usize, y_tiles: usize) {
+    #[must_use]
+    pub fn tile(&self, x_step: i32, width: i32, y_step: i32, height: i32) -> Shape {
         let mut new_cells = vec![];
         for Pixel { x, y, color } in &self.cells {
-            for ty in 0..y_tiles {
-                for tx in 0..x_tiles {
+            let mut tx = 0;
+            while *x + tx < width {
+                let mut ty = 0;
+                while *y + ty < height {
                     new_cells.push(Pixel {
-                        x: x + tx as i32 * x_step as i32,
-                        y: y + ty as i32 * y_step as i32,
+                        x: *x + tx,
+                        y: *y + ty,
                         color: *color,
                     });
+                    ty += y_step;
                 }
+                tx += x_step;
             }
         }
-        self.cells = new_cells;
+        Shape {
+            cells: new_cells,
+            ..Default::default()
+        }
+    }
+
+    #[must_use]
+    pub fn crop(&self, left: i32, top: i32, right: i32, bottom: i32) -> Shape {
+        let mut new_cells = vec![];
+        for Pixel { x, y, color } in &self.cells {
+            if *x >= left && *x <= right && *y >= top && *y <= bottom {
+                new_cells.push(Pixel {
+                    x: *x - left,
+                    y: *y - top,
+                    color: *color,
+                });
+            }
+        }
+        Shape {
+            cells: new_cells,
+            ..Default::default()
+        }
     }
 
     pub fn draw_where_non_empty(&self, image: &mut Image) {
@@ -357,7 +393,39 @@ impl Shape {
         }
         self.has_relative_colors = true;
     }
+
+    pub fn covers(&self, other: &Shape) -> bool {
+        for Pixel { x, y, color: _ } in &other.cells {
+            if self.color_at(*x, *y).is_none() {
+                return false;
+            }
+        }
+        true
+    }
 }
+
+impl PartialEq for Shape {
+    fn eq(&self, other: &Self) -> bool {
+        if self.has_relative_colors != other.has_relative_colors {
+            return false;
+        }
+        if self.cells.len() != other.cells.len() {
+            return false;
+        }
+        let mut sc = self.cells.clone();
+        sc.sort();
+        let mut oc = other.cells.clone();
+        oc.sort();
+        for (a, b) in sc.iter().zip(oc.iter()) {
+            if a.x != b.x || a.y != b.y || a.color != b.color {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl Eq for Shape {}
 
 pub fn reverse_colors(colors: &[i32]) -> Vec<i32> {
     let mut reverse_colors = vec![-1; colors.len()];
@@ -588,7 +656,7 @@ pub fn get_used_colors(images: &[Rc<Image>]) -> Vec<i32> {
     used_colors
 }
 
-pub fn resize_image(image: &Image, ratio: usize) -> Image {
+pub fn scale_up_image(image: &Image, ratio: usize) -> Image {
     let height = image.len() * ratio;
     let width = image[0].len() * ratio;
     let mut new_image = vec![vec![0; width]; height];
