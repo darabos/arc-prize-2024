@@ -610,10 +610,6 @@ pub fn smallest(shapes: &[Shape]) -> &Shape {
         .expect("Should have been a shape")
 }
 
-pub fn sort_shapes_by_size(shapes: &mut Vec<Rc<Shape>>) {
-    shapes.sort_by_key(|shape| shape.cells.len());
-}
-
 pub fn remap_colors_in_image(image: &Image, mapping: &[i32]) -> Rc<Image> {
     let mut new_image = image.clone();
     for row in &mut new_image {

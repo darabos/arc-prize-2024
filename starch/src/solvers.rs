@@ -13,11 +13,6 @@ pub fn use_colorsets_as_shapes(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
-pub fn sort_shapes_by_size(s: &mut SolverState, i: usize) -> Res<()> {
-    tools::sort_shapes_by_size(&mut s.shapes[i]);
-    Ok(())
-}
-
 fn order_colors_by_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes[i];
     let mut already_used = vec![false; COLORS.len()];
@@ -161,16 +156,23 @@ impl SolverState {
         let colorsets = (0..images.len())
             .map(|i| tools::find_colorsets_in_image(&images[i]))
             .collect();
-        let shapes = (0..images.len()).map(|i| find_shapes(&images[i])).collect();
-        SolverState {
+        let mut shapes: ShapesPerExample =
+            (0..images.len()).map(|i| find_shapes(&images[i])).collect();
+        for s in &mut shapes {
+            s.sort_by_key(|shape| shape.color());
+        }
+        let mut state = SolverState {
             task: Rc::new(task.clone()),
             images,
             output_images,
             colors,
             colorsets,
+            saved_shapes: vec![shapes.clone()],
             shapes,
             ..Default::default()
-        }
+        };
+        state.apply(order_colors_by_shapes).unwrap();
+        state
     }
 
     fn apply<F>(&mut self, f: F) -> Res<()>
@@ -404,6 +406,18 @@ fn order_shapes_by_color(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+fn order_shapes_by_size_decreasing(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &mut s.shapes[i];
+    shapes.sort_by_key(|shape| -(shape.cells.len() as i32));
+    Ok(())
+}
+
+fn order_shapes_by_size_increasing(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &mut s.shapes[i];
+    shapes.sort_by_key(|shape| shape.cells.len());
+    Ok(())
+}
+
 fn find_repeating_pattern(s: &mut SolverState, i: usize) -> Res<()> {
     let (width, height) = s.width_and_height(i);
     let shapes = &mut s.shapes[i];
@@ -595,17 +609,13 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     ],
     &[
         // 3
-        All(save_shapes),
         Each(pick_bottom_right_shape_per_color),
         All(load_shapes_except_current_shapes),
         All(move_shapes_per_output),
     ],
     &[
         // 7
-        Each(order_shapes_by_color),
-        Each(order_colors_by_shapes),
         Each(use_next_color),
-        All(save_shapes),
         Each(filter_shapes_by_color),
         All(save_shapes_and_load_previous),
         Each(use_previous_color),
@@ -615,7 +625,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // 11
         All(use_colorsets_as_shapes),
-        Each(sort_shapes_by_size),
+        Each(order_shapes_by_size_increasing),
         Each(order_colors_by_shapes),
         All(grow_flowers),
     ],
