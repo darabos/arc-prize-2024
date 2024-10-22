@@ -46,10 +46,13 @@ pub struct Example {
 
 pub type Res<T> = Result<T, &'static str>;
 
-#[derive(Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Vec2 {
     pub x: i32,
     pub y: i32,
+}
+impl Vec2 {
+    pub const ZERO: Vec2 = Vec2 { x: 0, y: 0 };
 }
 #[derive(Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Pixel {
@@ -69,7 +72,15 @@ pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
 pub const DOWN: Vec2 = Vec2 { x: 0, y: 1 };
 pub const LEFT: Vec2 = Vec2 { x: -1, y: 0 };
 pub const RIGHT: Vec2 = Vec2 { x: 1, y: 0 };
-pub const DIRECTIONS: [Vec2; 4] = [UP, DOWN, LEFT, RIGHT];
+pub const UP_LEFT: Vec2 = Vec2 { x: -1, y: -1 };
+pub const UP_RIGHT: Vec2 = Vec2 { x: 1, y: -1 };
+pub const DOWN_LEFT: Vec2 = Vec2 { x: -1, y: 1 };
+pub const DOWN_RIGHT: Vec2 = Vec2 { x: 1, y: 1 };
+
+pub const DIRECTIONS4: [Vec2; 4] = [UP, DOWN, LEFT, RIGHT];
+pub const DIRECTIONS8: [Vec2; 8] = [
+    UP, DOWN, LEFT, RIGHT, UP_LEFT, UP_RIGHT, DOWN_LEFT, DOWN_RIGHT,
+];
 
 pub fn print_color(color: i32) {
     if color < 0 {
@@ -90,6 +101,7 @@ pub fn print_image(image: &Image) {
     }
 }
 
+#[allow(dead_code)]
 pub fn print_example(example: &Example) {
     println!("Input:");
     print_image(&example.input);
@@ -99,6 +111,7 @@ pub fn print_example(example: &Example) {
     }
 }
 
+#[allow(dead_code)]
 pub fn print_task(task: &Task) {
     println!("Train:");
     for example in &task.train {
@@ -120,7 +133,7 @@ pub fn resize_canvas(image: &Image, width: usize, height: usize) -> Image {
     new_image
 }
 
-pub fn find_shapes_in_image(image: &Image) -> Vec<Rc<Shape>> {
+pub fn find_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>> {
     let mut shapes = vec![];
     let mut visited = vec![vec![false; image[0].len()]; image.len()];
     for y in 0..image.len() {
@@ -138,7 +151,7 @@ pub fn find_shapes_in_image(image: &Image) -> Vec<Rc<Shape>> {
             let mut i = 0;
             while i < cells.len() {
                 let Pixel { x, y, color: _ } = cells[i];
-                for dir in &DIRECTIONS {
+                for dir in directions {
                     let nx = x + dir.x;
                     let ny = y + dir.y;
                     if let Ok(nc) = lookup_in_image(image, nx, ny) {
@@ -164,6 +177,7 @@ pub fn find_shapes_in_image(image: &Image) -> Vec<Rc<Shape>> {
     shapes
 }
 
+#[must_use]
 pub fn discard_background_shapes_touching_border(
     image: &Image,
     shapes: Vec<Rc<Shape>>,
@@ -231,6 +245,15 @@ impl std::ops::Mul<Vec2> for i32 {
         Vec2 {
             x: self * other.x,
             y: self * other.y,
+        }
+    }
+}
+impl std::ops::Add<Vec2> for Vec2 {
+    type Output = Vec2;
+    fn add(self, other: Vec2) -> Vec2 {
+        Vec2 {
+            x: self.x + other.x,
+            y: self.y + other.y,
         }
     }
 }
@@ -315,6 +338,7 @@ impl Shape {
         false
     }
 
+    #[must_use]
     pub fn move_by(&self, vector: Vec2) -> Shape {
         let cells = self
             .cells
@@ -328,9 +352,16 @@ impl Shape {
         Shape { cells, ..*self }
     }
     pub fn move_by_mut(&mut self, vector: Vec2) {
-        for Pixel { x, y, color } in &mut self.cells {
+        for Pixel { x, y, color: _ } in &mut self.cells {
             *x += vector.x;
             *y += vector.y;
+        }
+    }
+    pub fn restore_from(&mut self, other: &Shape) {
+        for (a, b) in self.cells.iter_mut().zip(&other.cells) {
+            a.x = b.x;
+            a.y = b.y;
+            a.color = b.color;
         }
     }
     pub fn match_image_when_moved_by(&self, image: &Image, vector: Vec2) -> bool {
@@ -439,6 +470,7 @@ impl Shape {
     #[allow(dead_code)]
     pub fn print(&self) {
         let box_ = self.bounding_box();
+        println!("top left: {}, {}", box_.left, box_.top);
         for y in box_.top..=box_.bottom {
             for x in box_.left..=box_.right {
                 print_color(self.color_at(x, y).unwrap_or(-1));
@@ -608,19 +640,6 @@ pub fn smallest(shapes: &[Shape]) -> &Shape {
         .iter()
         .min_by_key(|shape| shape.cells.len())
         .expect("Should have been a shape")
-}
-
-pub fn remap_colors_in_image(image: &Image, mapping: &[i32]) -> Rc<Image> {
-    let mut new_image = image.clone();
-    for row in &mut new_image {
-        for cell in row {
-            let c = mapping[*cell as usize];
-            if c != -1 {
-                *cell = c;
-            }
-        }
-    }
-    Rc::new(new_image)
 }
 
 pub fn lookup_in_image(image: &Image, x: i32, y: i32) -> Res<i32> {

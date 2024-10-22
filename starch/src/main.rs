@@ -75,7 +75,7 @@ fn main() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // for (name, task) in tasks.iter().filter(|(k, _)| *k == "017c7c7b") {
+    // for (name, task) in tasks.iter().filter(|(k, _)| *k == "045e512c") {
     for (name, task) in &tasks {
         // println!("Task: {}", name);
         // tools::print_task(task);
