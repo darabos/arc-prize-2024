@@ -131,7 +131,7 @@ fn save_whole_image(s: &mut SolverState) -> Res<()> {
 
 type Shapes = Vec<Rc<Shape>>;
 type ShapesPerExample = Vec<Shapes>;
-type ImagesPerExample = Vec<Rc<Image>>;
+type ImagePerExample = Vec<Rc<Image>>;
 type ColorList = Vec<i32>;
 type ColorListPerExample = Vec<ColorList>;
 
@@ -140,8 +140,8 @@ type ColorListPerExample = Vec<ColorList>;
 #[derive(Default, Clone)]
 pub struct SolverState {
     pub task: Rc<Task>,
-    pub images: ImagesPerExample,
-    pub saved_images: Vec<ImagesPerExample>,
+    pub images: ImagePerExample,
+    pub saved_images: Vec<ImagePerExample>,
     pub output_images: Vec<Rc<Image>>,
     pub colors: ColorListPerExample,
     pub shapes: ShapesPerExample,
@@ -406,8 +406,15 @@ fn scale_up_image(s: &mut SolverState) -> Res<()> {
     })
 }
 
-fn save_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
+fn use_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
     s.shapes[i] = vec![Rc::new(Shape::from_image(&s.images[i]))];
+    Ok(())
+}
+
+fn use_image_without_background_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
+    let mut shape = Shape::from_image(&s.images[i]);
+    shape.discard_color(0);
+    s.shapes[i] = vec![shape.into()];
     Ok(())
 }
 
@@ -659,7 +666,7 @@ fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
             let offset = distance * direction;
             for i in 0..outputs.len() {
                 for shape in &shapes[i] {
-                    if !shape.match_image_when_moved_by(&outputs[i], offset) {
+                    if !shape.matches_image_when_moved_by(&outputs[i], offset) {
                         correct = false;
                         break;
                     }
@@ -830,6 +837,109 @@ fn recolor_image_per_output(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+fn find_matching_offset(
+    shape: &ShapesPerExample,
+    images: &ImagePerExample,
+    direction: tools::Vec2,
+    start_pos: tools::Vec2,
+    min_offset: i32,
+    max_offset: i32,
+) -> Res<i32> {
+    for distance in min_offset..=max_offset {
+        if are_shapes_present_at(shape, images, start_pos + distance * direction) {
+            return Ok(distance);
+        }
+    }
+    Err(err!("no match found"))
+}
+
+fn are_shapes_present_at(
+    shapes: &ShapesPerExample,
+    images: &ImagePerExample,
+    pos: tools::Vec2,
+) -> bool {
+    for i in 0..images.len() {
+        let image = &images[i];
+        for shape in &shapes[i] {
+            if !shape.matches_image_when_moved_by(image, pos) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn repeat_shapes_on_lattice_per_output(s: &mut SolverState) -> Res<()> {
+    // Make sure the shapes are not tiny.
+    for shapes_per in &s.shapes {
+        let total_cells: usize = shapes_per.iter().map(|s| s.cells.len()).sum();
+        if total_cells < 4 {
+            return Err("shape too small");
+        }
+    }
+    // Find a lattice. This is a periodic pattern described by two parameters,
+    // the horizontal period (a single number) and the vertical offset (a Vec2).
+    let horizontal_period = find_matching_offset(
+        &s.shapes,
+        &s.output_images,
+        tools::RIGHT,
+        tools::Vec2::ZERO,
+        1,
+        10,
+    )?;
+    for vertical_y in 1..3 {
+        let vertical_x = find_matching_offset(
+            &s.shapes,
+            &s.output_images,
+            tools::RIGHT,
+            vertical_y * tools::DOWN,
+            -2,
+            2,
+        )?;
+        if are_shapes_present_at(
+            &s.shapes,
+            &s.output_images,
+            vertical_y * tools::DOWN + (vertical_x + horizontal_period) * tools::RIGHT,
+        ) {
+            return repeat_shapes_on_lattice(s, horizontal_period, vertical_x, vertical_y);
+        }
+        if are_shapes_present_at(
+            &s.shapes,
+            &s.output_images,
+            vertical_y * tools::DOWN + (vertical_x - horizontal_period) * tools::RIGHT,
+        ) {
+            return repeat_shapes_on_lattice(s, horizontal_period, vertical_x, vertical_y);
+        }
+    }
+    Err(err!("no match found"))
+}
+
+fn repeat_shapes_on_lattice(
+    s: &mut SolverState,
+    horizontal_period: i32,
+    vertical_x: i32,
+    vertical_y: i32,
+) -> Res<()> {
+    for i in 0..s.images.len() {
+        let image = &s.images[i];
+        let shapes = &s.shapes[i];
+        let mut new_image = (**image).clone();
+        for shape in shapes {
+            for rep_x in -5..=5 {
+                for rep_y in -5..=5 {
+                    let pos = tools::Vec2 {
+                        x: rep_x * horizontal_period + rep_y * vertical_x,
+                        y: rep_y * vertical_y,
+                    };
+                    tools::draw_shape_at(&mut new_image, shape, pos);
+                }
+            }
+        }
+        s.images[i] = Rc::new(new_image);
+    }
+    Ok(())
+}
+
 pub enum SolverStep {
     Each(fn(&mut SolverState, usize) -> Res<()>),
     All(fn(&mut SolverState) -> Res<()>),
@@ -839,7 +949,7 @@ use SolverStep::*;
 pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // 0
-        Each(save_image_as_shape),
+        Each(use_image_as_shape),
         All(scale_up_image),
         Each(tile_shapes),
         Each(draw_shape_where_non_empty),
@@ -880,6 +990,11 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         All(split_into_two_images),
         Each(boolean_with_saved_image_and),
         All(recolor_image_per_output),
+    ],
+    &[
+        // 6
+        Each(use_image_without_background_as_shape),
+        All(repeat_shapes_on_lattice_per_output),
     ],
     &[
         // 7

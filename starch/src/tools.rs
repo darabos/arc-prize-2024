@@ -371,18 +371,22 @@ impl Shape {
             a.color = b.color;
         }
     }
-    pub fn match_image_when_moved_by(&self, image: &Image, vector: Vec2) -> bool {
+    /// Returns true if the shape matches the image at the given position.
+    /// Returns false if the shape is entirely out of bounds.
+    pub fn matches_image_when_moved_by(&self, image: &Image, vector: Vec2) -> bool {
+        let mut something_matched = false;
         for Pixel { x, y, color } in &self.cells {
             let nx = x + vector.x;
             let ny = y + vector.y;
             if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
-                return false;
+                continue;
             }
             if image[ny as usize][nx as usize] != *color {
                 return false;
             }
+            something_matched = true;
         }
-        true
+        something_matched
     }
 
     pub fn recolor(&mut self, color: i32) {
@@ -444,6 +448,13 @@ impl Shape {
                 }
             }
         }
+    }
+
+    pub fn discard_color(&mut self, color: i32) {
+        self.cells = std::mem::take(&mut self.cells)
+            .into_iter()
+            .filter(|cell| cell.color != color)
+            .collect();
     }
 
     pub fn from_image(image: &Image) -> Shape {
