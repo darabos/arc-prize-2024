@@ -566,59 +566,57 @@ fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
     Err(err!("no match found"))
 }
 
-type Solver = fn(&mut SolverState) -> Res<()>;
 pub enum SolverStep {
     Each(fn(&mut SolverState, usize) -> Res<()>),
     All(fn(&mut SolverState) -> Res<()>),
 }
-
-const example_7: &[SolverStep] = &[
-    SolverStep::Each(order_shapes_by_color),
-    SolverStep::Each(order_colors_by_shapes),
-    SolverStep::Each(use_next_color),
-    SolverStep::All(save_shapes),
-    SolverStep::Each(filter_shapes_by_color),
-    SolverStep::All(save_shapes_and_load_previous),
-    SolverStep::Each(use_previous_color),
-    SolverStep::Each(filter_shapes_by_color),
-    SolverStep::Each(move_shapes_to_saved_shape),
-];
-
-const example_11: &[SolverStep] = &[
-    SolverStep::All(use_colorsets_as_shapes),
-    SolverStep::Each(sort_shapes_by_size),
-    SolverStep::Each(order_colors_by_shapes),
-    SolverStep::All(grow_flowers),
-];
-
-const example_0: &[SolverStep] = &[
-    SolverStep::Each(save_image_as_shape),
-    SolverStep::All(scale_up_image),
-    SolverStep::Each(tile_shapes),
-    SolverStep::Each(draw_shape_where_non_empty),
-];
-
-const example_1: &[SolverStep] = &[
-    SolverStep::Each(filter_shapes_by_color),
-    SolverStep::All(recolor_shapes_per_output),
-    SolverStep::Each(draw_shapes),
-];
-
-const example_2: &[SolverStep] = &[
-    SolverStep::All(use_output_size),
-    SolverStep::All(use_colorsets_as_shapes),
-    SolverStep::Each(find_repeating_pattern),
-    SolverStep::All(recolor_shapes_per_output),
-    SolverStep::Each(draw_shapes),
-];
-
-const example_3: &[SolverStep] = &[
-    SolverStep::All(save_shapes),
-    SolverStep::Each(pick_bottom_right_shape_per_color),
-    SolverStep::All(load_shapes_except_current_shapes),
-    SolverStep::All(move_shapes_per_output),
-];
-
+use SolverStep::*;
 pub const SOLVERS: &[&[SolverStep]] = &[
-    example_0, example_1, example_2, example_3, example_7, example_11,
+    &[
+        // 0
+        Each(save_image_as_shape),
+        All(scale_up_image),
+        Each(tile_shapes),
+        Each(draw_shape_where_non_empty),
+    ],
+    &[
+        // 1
+        Each(filter_shapes_by_color),
+        All(recolor_shapes_per_output),
+        Each(draw_shapes),
+    ],
+    &[
+        // 2
+        All(use_output_size),
+        All(use_colorsets_as_shapes),
+        Each(find_repeating_pattern),
+        All(recolor_shapes_per_output),
+        Each(draw_shapes),
+    ],
+    &[
+        // 3
+        All(save_shapes),
+        Each(pick_bottom_right_shape_per_color),
+        All(load_shapes_except_current_shapes),
+        All(move_shapes_per_output),
+    ],
+    &[
+        // 7
+        Each(order_shapes_by_color),
+        Each(order_colors_by_shapes),
+        Each(use_next_color),
+        All(save_shapes),
+        Each(filter_shapes_by_color),
+        All(save_shapes_and_load_previous),
+        Each(use_previous_color),
+        Each(filter_shapes_by_color),
+        Each(move_shapes_to_saved_shape),
+    ],
+    &[
+        // 11
+        All(use_colorsets_as_shapes),
+        Each(sort_shapes_by_size),
+        Each(order_colors_by_shapes),
+        All(grow_flowers),
+    ],
 ];
