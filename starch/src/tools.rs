@@ -780,6 +780,12 @@ pub fn lookup_in_image(image: &Image, x: i32, y: i32) -> Res<i32> {
     }
     Ok(image[y as usize][x as usize])
 }
+pub fn set_in_image(image: &mut Image, x: i32, y: i32, color: i32) {
+    if x < 0 || y < 0 || x >= image[0].len() as i32 || y >= image.len() as i32 {
+        return;
+    }
+    image[y as usize][x as usize] = color;
+}
 
 /// Returns the total number of non-zero pixels in the boxes of the given radius
 /// around the dots.

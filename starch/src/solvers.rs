@@ -8,6 +8,15 @@ macro_rules! err {
     };
 }
 
+/// Returns an error if the given Vec is empty.
+macro_rules! must_have {
+    ($e:expr) => {
+        if $e.is_empty() {
+            return Err(err!("empty"));
+        }
+    };
+}
+
 pub fn use_colorsets_as_shapes(s: &mut SolverState) -> Res<()> {
     s.shapes = s.colorsets.clone();
     Ok(())
@@ -47,6 +56,7 @@ fn get_firsts<T>(vec: &Vec<Vec<T>>) -> Res<Vec<&T>> {
 }
 
 fn grow_flowers(s: &mut SolverState) -> Res<()> {
+    must_have!(&s.output_images);
     let dots = get_firsts(&s.shapes)?;
     // let input_pattern = find_pattern_around(&s.images[..s.task.train.len()], &dots);
     let mut output_pattern = tools::find_pattern_around(&s.output_images, &dots);
@@ -134,6 +144,11 @@ fn save_whole_image(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+fn find_shapes(image: &Image) -> Shapes {
+    let shapes = tools::find_shapes_in_image(image, &tools::DIRECTIONS4);
+    tools::discard_background_shapes_touching_border(image, shapes)
+}
+
 type Shapes = Vec<Rc<Shape>>;
 type ShapesPerExample = Vec<Shapes>;
 type ImagePerExample = Vec<Rc<Image>>;
@@ -158,11 +173,8 @@ pub struct SolverState {
     // Lines that go all the way through the image.
     pub horizontal_lines: LinesPerExample,
     pub vertical_lines: LinesPerExample,
-}
-
-fn find_shapes(image: &Image) -> Shapes {
-    let shapes = tools::find_shapes_in_image(image, &tools::DIRECTIONS4);
-    tools::discard_background_shapes_touching_border(image, shapes)
+    // If this is set, we will apply steps to these states.
+    pub substates: Option<Vec<SolverState>>,
 }
 
 impl SolverState {
@@ -214,7 +226,7 @@ impl SolverState {
         self.apply(order_colors_by_shapes).unwrap();
     }
 
-    fn validate(&self) -> Res<()> {
+    pub fn validate(&self) -> Res<()> {
         if self.images.is_empty() {
             return Err("no images");
         }
@@ -224,6 +236,9 @@ impl SolverState {
         if self.images.iter().any(|image| image.is_empty()) {
             return Err("empty image");
         }
+        if self.images.iter().any(|image| image[0].is_empty()) {
+            return Err("empty image");
+        }
         if self.output_images.is_empty() {
             return Err("no output images");
         }
@@ -231,6 +246,9 @@ impl SolverState {
             return Err("wrong number of output images");
         }
         if self.output_images.iter().any(|image| image.is_empty()) {
+            return Err("empty output image");
+        }
+        if self.output_images.iter().any(|image| image[0].is_empty()) {
             return Err("empty output image");
         }
         if self.colors.is_empty() {
@@ -371,33 +389,48 @@ impl SolverState {
                 colorsets: vec![self.colorsets[i].clone()],
                 scale_up: self.scale_up,
                 last_move: self.last_move,
+                horizontal_lines: vec![self.horizontal_lines[i].clone()],
+                vertical_lines: vec![self.vertical_lines[i].clone()],
                 ..Default::default()
             })
             .collect()
     }
 
     pub fn run_steps(&mut self, steps: &[SolverStep]) -> Res<()> {
-        for (i, step) in steps.iter().enumerate() {
+        for step in steps {
             self.validate()?;
-            match step {
-                SolverStep::Each(f) => self.apply(f)?,
-                SolverStep::All(f) => f(self)?,
-                SolverStep::ForEachShape => {
-                    let mut new_images = vec![];
-                    for mut state in self.state_per_image() {
-                        let shapes = std::mem::take(&mut state.shapes[0]);
-                        for shape in shapes {
-                            state.shapes = vec![vec![shape.clone()]];
-                            state.run_steps(&steps[i + 1..])?;
-                        }
-                        new_images.push(state.images[0].clone());
-                    }
-                    self.images = new_images;
-                    break;
-                }
-            }
+            self.run_step(step)?;
         }
         Ok(())
+    }
+
+    pub fn run_step(&mut self, step: &SolverStep) -> Res<()> {
+        if let Some(substates) = &mut self.substates {
+            let mut new_images = vec![];
+            for state in substates {
+                let shapes = std::mem::take(&mut state.shapes[0]);
+                for shape in shapes {
+                    state.shapes = vec![vec![shape.clone()]];
+                    state.run_step(&step)?;
+                }
+                new_images.push(state.images[0].clone());
+            }
+            self.images = new_images;
+            return Ok(());
+        }
+        match step {
+            SolverStep::Each(f) => self.apply(f)?,
+            SolverStep::All(f) => f(self)?,
+            SolverStep::ForEachShape => self.substates = Some(self.state_per_image()),
+        }
+        Ok(())
+    }
+
+    pub fn correct_on_train(&self) -> bool {
+        self.images[..self.task.train.len()]
+            .iter()
+            .zip(self.output_images.iter())
+            .all(|(image, output)| tools::compare_images(image, output))
     }
 }
 
@@ -468,6 +501,7 @@ fn move_shapes_to_touch_saved_shape(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn scale_up_image(s: &mut SolverState) -> Res<()> {
+    must_have!(&s.output_images);
     // Find ratio from looking at example outputs.
     let output_size = s.output_images[0].len() as i32;
     let input_size = s.images[0].len() as i32;
@@ -493,7 +527,10 @@ fn use_image_without_background_as_shape(s: &mut SolverState, i: usize) -> Res<(
     Ok(())
 }
 
-fn tile_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+fn tile_shapes_after_scale_up(s: &mut SolverState, i: usize) -> Res<()> {
+    if s.scale_up <= 1 {
+        return Err(err!("not scaled up"));
+    }
     let (current_width, current_height) = s.width_and_height(i);
     let shapes = &mut s.shapes[i];
     let old_width = current_width / s.scale_up;
@@ -527,6 +564,7 @@ fn delete_shapes_touching_border(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
+    must_have!(&s.output_images);
     // Get color from first output_image.
     let first_shape = &s.shapes[0].get(0).ok_or("no shapes")?;
     let color = tools::lookup_in_image(
@@ -1127,7 +1165,7 @@ fn connect_aligned_pixels_in_shapes(s: &mut SolverState, i: usize) -> Res<()> {
                     {
                         for d in 1..distance {
                             let pos = *cell + d * dir;
-                            new_image[pos.y as usize][pos.x as usize] = cell.color;
+                            tools::set_in_image(&mut new_image, pos.x, pos.y, cell.color);
                         }
                     }
                 }
@@ -1144,12 +1182,61 @@ pub enum SolverStep {
     ForEachShape,
 }
 use SolverStep::*;
+impl std::fmt::Display for SolverStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Each(func) => write!(f, "{:?}", func),
+            All(func) => write!(f, "{:?}", func),
+            ForEachShape => write!(f, "ForEachShape"),
+        }
+    }
+}
+pub const ALL_STEPS: &[SolverStep] = &[
+    All(grow_flowers),
+    All(load_shapes_except_current_shapes),
+    All(move_shapes_per_output),
+    All(recolor_image_per_output),
+    All(recolor_shapes_per_output),
+    All(repeat_shapes_on_lattice_per_output),
+    All(save_first_shape_use_the_rest),
+    All(save_shapes_and_load_previous),
+    All(scale_up_image),
+    All(split_into_two_images),
+    All(use_colorsets_as_shapes),
+    All(use_output_size),
+    Each(allow_diagonals_in_shapes),
+    Each(boolean_with_saved_image_and),
+    Each(boolean_with_saved_image_or),
+    Each(boolean_with_saved_image_xor),
+    Each(connect_aligned_pixels_in_shapes),
+    Each(delete_background_shapes),
+    Each(draw_shape_where_non_empty),
+    Each(draw_shapes),
+    Each(filter_shapes_by_color),
+    Each(find_repeating_pattern),
+    Each(move_saved_shape_to_cover_current_shape_max),
+    Each(move_shapes_to_touch_saved_shape),
+    Each(order_colors_by_shapes),
+    Each(order_shapes_by_size_decreasing),
+    Each(order_shapes_by_size_increasing),
+    Each(pick_bottom_right_shape_per_color),
+    Each(recolor_saved_shapes_to_current_shape),
+    Each(remove_grid),
+    Each(repeat_last_move_and_draw),
+    Each(restore_grid),
+    Each(tile_shapes_after_scale_up),
+    Each(use_image_as_shape),
+    Each(use_image_without_background_as_shape),
+    Each(use_next_color),
+    Each(use_previous_color),
+    ForEachShape,
+];
 pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // 0
         Each(use_image_as_shape),
         All(scale_up_image),
-        Each(tile_shapes),
+        Each(tile_shapes_after_scale_up),
         Each(draw_shape_where_non_empty),
     ],
     &[

@@ -1,4 +1,5 @@
 use colored::Colorize;
+use indicatif::ProgressBar;
 use serde_json;
 use std::collections::HashMap as Map;
 use std::fs;
@@ -71,13 +72,95 @@ pub fn read_arc_solutions_file(file_path: &str) -> Map<String, Vec<Image>> {
     tasks
 }
 
-fn main() {
+fn automatic_solver(task: &Task) -> tools::Res<Vec<Example>> {
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(solvers::SolverState::new(task));
+    let mut budget = 100;
+    while let Some(state) = queue.pop_front() {
+        if budget == 0 {
+            break;
+        }
+        budget -= 1;
+        for step in solvers::ALL_STEPS {
+            let mut s = state.clone();
+            if s.run_step(step).is_ok() {
+                if let Err(error) = s.validate() {
+                    println!("{} after {}", error.red(), step);
+                }
+                if s.correct_on_train() {
+                    return Ok(s.get_results()[task.train.len()..].to_vec());
+                }
+                queue.push_back(s);
+            }
+        }
+    }
+    Err("No solution found")
+}
+
+fn evaluate_automatic_solver() {
+    let tasks = read_arc_file("../arc-agi_training_challenges.json");
+    let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
+    let mut correct = 0;
+    // let debug = "06df4c85";
+    let debug = "";
+    let tasks = if debug == "" {
+        tasks
+    } else {
+        tasks.into_iter().filter(|(k, _)| *k == debug).collect()
+    };
+    let bar = ProgressBar::new(tasks.len() as u64);
+    for (name, task) in &tasks {
+        bar.inc(1);
+        // println!("Task: {}", name);
+        // tools::print_task(task);
+        if let Ok(solutions) = automatic_solver(task) {
+            let ref_images = ref_solutions
+                .get(name)
+                .expect("Should have been a solution");
+            let mut all_correct = true;
+            for i in 0..ref_images.len() {
+                let ref_image = &ref_images[i];
+                let image = &solutions[i].output;
+                if debug != "" {
+                    tools::print_image(image);
+                }
+                if !tools::compare_images(ref_image, image) {
+                    if debug != "" {
+                        println!("expected:");
+                        tools::print_image(ref_image);
+                    }
+                    all_correct = false;
+                    break;
+                }
+                if debug != "" {
+                    tools::print_image(image);
+                }
+                println!("{}: {}", name, "Correct".green());
+            }
+            if all_correct {
+                correct += 1;
+                break;
+            }
+        }
+    }
+    bar.finish();
+    println!("Correct: {}/{}", correct, tasks.len());
+}
+
+fn evaluate_manual_solvers() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
     // let debug = (8, "06df4c85");
     let debug = (-1, "");
-    for (name, task) in tasks.iter().filter(|(k, _)| debug.0 < 0 || *k == debug.1) {
+    let tasks = if debug.0 < 0 {
+        tasks
+    } else {
+        tasks.into_iter().filter(|(k, _)| *k == debug.1).collect()
+    };
+    let bar = ProgressBar::new(tasks.len() as u64);
+    for (name, task) in &tasks {
+        bar.inc(1);
         // println!("Task: {}", name);
         // tools::print_task(task);
         let state = solvers::SolverState::new(task);
@@ -125,4 +208,9 @@ fn main() {
         }
     }
     println!("Correct: {}/{}", correct, tasks.len());
+}
+
+fn main() {
+    // evaluate_automatic_solver();
+    evaluate_manual_solvers();
 }
