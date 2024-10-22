@@ -290,7 +290,6 @@ impl SolverState {
                 SolverStep::ForEachShape => {
                     let mut new_images = vec![];
                     for mut state in self.state_per_image() {
-                        // tools::print_image(&state.images[0]);
                         let shapes = std::mem::take(&mut state.shapes[0]);
                         for shape in shapes {
                             state.shapes = vec![vec![shape.clone()]];
@@ -669,12 +668,9 @@ fn move_saved_shape_to_cover_current_shape_max(s: &mut SolverState, i: usize) ->
     let current_shape = &s.shapes[i].get(0).ok_or(err!("no current shape"))?;
     let saved_shape = saved_shapes.get(0).ok_or(err!("no saved shape"))?;
     let mut moved: Shape = (**saved_shape).clone();
-    // current_shape.print();
-    // moved.print();
     for distance in (1..10).rev() {
         for direction in tools::DIRECTIONS8 {
             moved.move_by_mut(distance * direction);
-            // moved.print();
             if moved.covers(current_shape) {
                 s.shapes[i] = vec![moved.into()];
                 s.last_move = distance * direction;
@@ -704,6 +700,21 @@ fn repeat_last_move_and_draw(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+fn recolor_saved_shapes_to_current_shape(s: &mut SolverState, i: usize) -> Res<()> {
+    let saved_shapes = &s.saved_shapes.last().ok_or(err!("no saved shapes"))?[i];
+    let current_shape = &s.shapes[i].get(0).ok_or(err!("no current shape"))?;
+    let color = current_shape.color();
+    let mut new_saved_shapes = vec![];
+    for saved_shape in saved_shapes {
+        let mut new_shape = (**saved_shape).clone();
+        new_shape.recolor(color);
+        new_saved_shapes.push(new_shape.into());
+    }
+    let len = s.saved_shapes.len();
+    s.saved_shapes[len - 1][i] = new_saved_shapes;
+    Ok(())
+}
+
 pub enum SolverStep {
     Each(fn(&mut SolverState, usize) -> Res<()>),
     All(fn(&mut SolverState) -> Res<()>),
@@ -711,17 +722,6 @@ pub enum SolverStep {
 }
 use SolverStep::*;
 pub const SOLVERS: &[&[SolverStep]] = &[
-    &[
-        // 4
-        Each(allow_diagonals_in_shapes),
-        Each(delete_background_shapes),
-        Each(order_shapes_by_size_decreasing),
-        All(save_first_shape_use_the_rest),
-        ForEachShape,
-        Each(move_saved_shape_to_cover_current_shape_max),
-        // All(print_images_step),
-        Each(repeat_last_move_and_draw),
-    ],
     &[
         // 0
         Each(save_image_as_shape),
@@ -748,6 +748,17 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         Each(pick_bottom_right_shape_per_color),
         All(load_shapes_except_current_shapes),
         All(move_shapes_per_output),
+    ],
+    &[
+        // 4
+        Each(allow_diagonals_in_shapes),
+        Each(delete_background_shapes),
+        Each(order_shapes_by_size_decreasing),
+        All(save_first_shape_use_the_rest),
+        ForEachShape,
+        Each(recolor_saved_shapes_to_current_shape),
+        Each(move_saved_shape_to_cover_current_shape_max),
+        Each(repeat_last_move_and_draw),
     ],
     &[
         // 7
