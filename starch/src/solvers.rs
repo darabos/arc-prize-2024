@@ -75,7 +75,7 @@ fn save_shapes(s: &mut SolverState) -> Res<()> {
 
 fn load_earlier_shapes(s: &mut SolverState, offset: usize) -> Res<()> {
     if s.saved_shapes.len() - 1 < offset {
-        return Err("no saved shapes");
+        return Err(err!("no saved shapes"));
     }
     s.shapes = s.saved_shapes[s.saved_shapes.len() - 1 - offset].clone();
     Ok(())
@@ -88,7 +88,7 @@ fn save_shapes_and_load_previous(s: &mut SolverState) -> Res<()> {
 
 fn save_first_shape_use_the_rest(s: &mut SolverState) -> Res<()> {
     if s.shapes.iter().any(|shapes| shapes.len() < 2) {
-        return Err("not enough shapes");
+        return Err(err!("not enough shapes"));
     }
     let first_shapes: ShapesPerExample = s
         .shapes
@@ -124,6 +124,11 @@ fn load_shapes_except_current_shapes(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+fn draw_saved_shapes(s: &mut SolverState) -> Res<()> {
+    load_shapes(s)?;
+    s.apply(draw_shapes)
+}
+
 fn save_whole_image(s: &mut SolverState) -> Res<()> {
     s.saved_images.push(s.images.clone());
     Ok(())
@@ -134,6 +139,7 @@ type ShapesPerExample = Vec<Shapes>;
 type ImagePerExample = Vec<Rc<Image>>;
 type ColorList = Vec<i32>;
 type ColorListPerExample = Vec<ColorList>;
+type LinesPerExample = Vec<tools::Lines>;
 
 /// Tracks information while applying operations on all examples at once.
 /// Most fields are vectors storing information for each example.
@@ -149,6 +155,9 @@ pub struct SolverState {
     pub colorsets: ShapesPerExample,
     pub scale_up: i32,
     pub last_move: tools::Vec2,
+    // Lines that go all the way through the image.
+    pub horizontal_lines: LinesPerExample,
+    pub vertical_lines: LinesPerExample,
 }
 
 fn find_shapes(image: &Image) -> Shapes {
@@ -169,27 +178,92 @@ impl SolverState {
             .iter()
             .map(|example| Rc::new(example.output.clone()))
             .collect();
-        let all_colors: ColorList = (0..COLORS.len() as i32).collect();
-        let colors = images.iter().map(|_| all_colors.clone()).collect();
-        let colorsets = (0..images.len())
-            .map(|i| tools::find_colorsets_in_image(&images[i]))
-            .collect();
-        let mut shapes: ShapesPerExample = images.iter().map(|image| find_shapes(image)).collect();
-        for s in &mut shapes {
-            s.sort_by_key(|shape| shape.color());
-        }
         let mut state = SolverState {
             task: Rc::new(task.clone()),
-            images,
             output_images,
-            colors,
-            colorsets,
-            saved_shapes: vec![shapes.clone()],
-            shapes,
             ..Default::default()
         };
-        state.apply(order_colors_by_shapes).unwrap();
+        state.init_from_images(images);
         state
+    }
+
+    fn init_from_images(&mut self, images: ImagePerExample) {
+        self.images = images;
+        let all_colors: ColorList = (0..COLORS.len() as i32).collect();
+        self.colors = self.images.iter().map(|_| all_colors.clone()).collect();
+        self.colorsets = self
+            .images
+            .iter()
+            .map(|image| tools::find_colorsets_in_image(image))
+            .collect();
+        self.shapes = self.images.iter().map(|image| find_shapes(image)).collect();
+        for s in &mut self.shapes {
+            s.sort_by_key(|shape| shape.color());
+        }
+        self.saved_shapes = vec![self.shapes.clone()];
+        self.horizontal_lines = self
+            .images
+            .iter()
+            .map(|image| tools::find_horizontal_lines_in_image(image))
+            .collect();
+        self.vertical_lines = self
+            .images
+            .iter()
+            .map(|image| tools::find_vertical_lines_in_image(image))
+            .collect();
+        self.apply(order_colors_by_shapes).unwrap();
+    }
+
+    fn validate(&self) -> Res<()> {
+        if self.images.is_empty() {
+            return Err("no images");
+        }
+        if self.images.len() != self.task.train.len() + self.task.test.len() {
+            return Err("wrong number of images");
+        }
+        if self.images.iter().any(|image| image.is_empty()) {
+            return Err("empty image");
+        }
+        if self.output_images.is_empty() {
+            return Err("no output images");
+        }
+        if self.output_images.len() != self.task.train.len() {
+            return Err("wrong number of output images");
+        }
+        if self.output_images.iter().any(|image| image.is_empty()) {
+            return Err("empty output image");
+        }
+        if self.colors.is_empty() {
+            return Err("no colors");
+        }
+        if self.colors.len() != self.images.len() {
+            return Err("wrong number of color lists");
+        }
+        if self.shapes.is_empty() {
+            return Err("no shapes");
+        }
+        if self.shapes.len() != self.images.len() {
+            return Err("wrong number of shape lists");
+        }
+        if self.colorsets.is_empty() {
+            return Err("no colorsets");
+        }
+        if self.colorsets.len() != self.images.len() {
+            return Err("wrong number of colorset lists");
+        }
+        if self.horizontal_lines.is_empty() {
+            return Err("no horizontal lines");
+        }
+        if self.horizontal_lines.len() != self.images.len() {
+            return Err("wrong number of horizontal line lists");
+        }
+        if self.vertical_lines.is_empty() {
+            return Err("no vertical lines");
+        }
+        if self.vertical_lines.len() != self.images.len() {
+            return Err("wrong number of vertical line lists");
+        }
+        Ok(())
     }
 
     fn apply<F>(&mut self, f: F) -> Res<()>
@@ -304,6 +378,7 @@ impl SolverState {
 
     pub fn run_steps(&mut self, steps: &[SolverStep]) -> Res<()> {
         for (i, step) in steps.iter().enumerate() {
+            self.validate()?;
             match step {
                 SolverStep::Each(f) => self.apply(f)?,
                 SolverStep::All(f) => f(self)?,
@@ -397,7 +472,7 @@ fn scale_up_image(s: &mut SolverState) -> Res<()> {
     let output_size = s.output_images[0].len() as i32;
     let input_size = s.images[0].len() as i32;
     if output_size % input_size != 0 {
-        return Err("output size must be a multiple of input size");
+        return Err(err!("output size must be a multiple of input size"));
     }
     s.scale_up = output_size / input_size;
     s.apply(|s: &mut SolverState, i: usize| {
@@ -515,7 +590,7 @@ fn find_repeating_pattern(s: &mut SolverState, i: usize) -> Res<()> {
     let shape = shapes.get(0).ok_or(err!("no shapes"))?;
     let bb = shape.bounding_box();
     if bb.width() < 3 && bb.height() < 3 {
-        return Err("shape too small");
+        return Err(err!("shape too small"));
     }
     let mut w = 1;
     let mut h = 1;
@@ -526,7 +601,7 @@ fn find_repeating_pattern(s: &mut SolverState, i: usize) -> Res<()> {
             let p2 = p.tile(w, width, h, height);
             if p2.cells.is_empty() {
                 // This can happen if the image is smaller than the shape.
-                return Err("empty pattern");
+                return Err(err!("empty pattern"));
             }
             s.shapes[i] = vec![p2.into()];
             return Ok(());
@@ -540,20 +615,20 @@ fn find_repeating_pattern(s: &mut SolverState, i: usize) -> Res<()> {
             }
         }
     }
-    Err("no repeating pattern found")
+    Err(err!("no repeating pattern found"))
 }
 
 fn use_output_size(s: &mut SolverState) -> Res<()> {
     let (current_width, current_height) = s.width_and_height(0);
     let (output_width, output_height) = s.output_width_and_height(0);
     if current_width == output_width && current_height == output_height {
-        return Err("already correct size");
+        return Err(err!("already correct size"));
     }
     // Make sure all outputs have the same size.
     for i in 1..s.output_images.len() {
         let (w, h) = s.output_width_and_height(i);
         if w != output_width || h != output_height {
-            return Err("output images have different sizes");
+            return Err(err!("output images have different sizes"));
         }
     }
     s.apply(|s: &mut SolverState, i: usize| {
@@ -589,7 +664,7 @@ fn pick_bottom_right_shape_per_color(s: &mut SolverState, i: usize) -> Res<()> {
         }
     }
     if new_shapes.is_empty() {
-        return Err("no shapes");
+        return Err(err!("no shapes"));
     }
     *shapes = new_shapes;
     Ok(())
@@ -713,7 +788,7 @@ fn move_saved_shape_to_cover_current_shape_max(s: &mut SolverState, i: usize) ->
 /// until it leaves the image.
 fn repeat_last_move_and_draw(s: &mut SolverState, i: usize) -> Res<()> {
     if s.last_move == tools::Vec2::ZERO {
-        return Err("no last move");
+        return Err(err!("no last move"));
     }
     let mut shapes: Vec<Shape> = s.shapes[i].iter().map(|shape| (**shape).clone()).collect();
     let mut new_image = (*s.images[i]).clone();
@@ -820,7 +895,7 @@ fn boolean_with_saved_image_function(
 fn recolor_image_per_output(s: &mut SolverState) -> Res<()> {
     let used_colors = tools::get_used_colors(&s.output_images);
     if used_colors.len() != 1 {
-        return Err("output images have different colors");
+        return Err(err!("output images have different colors"));
     }
     let color = used_colors[0];
     for image in &mut s.images {
@@ -874,7 +949,7 @@ fn repeat_shapes_on_lattice_per_output(s: &mut SolverState) -> Res<()> {
     for shapes_per in &s.shapes {
         let total_cells: usize = shapes_per.iter().map(|s| s.cells.len()).sum();
         if total_cells < 4 {
-            return Err("shape too small");
+            return Err(err!("shapes too small"));
         }
     }
     // Find a lattice. This is a periodic pattern described by two parameters,
@@ -937,6 +1012,129 @@ fn repeat_shapes_on_lattice(
         }
         s.images[i] = Rc::new(new_image);
     }
+    Ok(())
+}
+
+/// Deletes the lines. Instead of erasing them, we completely remove them from the image.
+fn remove_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &*s.images[i];
+    let mut new_image = vec![];
+    let lines = &s.horizontal_lines[i];
+    let mut line_i = 0;
+    let (_width, height) = s.width_and_height(i);
+    for y in 0..height {
+        if line_i < lines.len() && y == lines[line_i].pos {
+            line_i += 1;
+        } else {
+            new_image.push(image[y as usize].clone());
+        }
+    }
+    s.images[i] = Rc::new(new_image);
+    Ok(())
+}
+
+fn remove_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &*s.images[i];
+    let mut new_image = vec![];
+    let lines = &s.vertical_lines[i];
+    let (width, height) = s.width_and_height(i);
+    for y in 0..height {
+        let mut row = vec![];
+        let mut line_i = 0;
+        for x in 0..width {
+            if line_i < lines.len() && x == lines[line_i].pos {
+                line_i += 1;
+            } else {
+                row.push(image[y as usize][x as usize]);
+            }
+        }
+        new_image.push(row);
+    }
+    s.images[i] = Rc::new(new_image);
+    Ok(())
+}
+
+fn remove_grid(s: &mut SolverState, i: usize) -> Res<()> {
+    remove_horizontal_lines(s, i)?;
+    remove_vertical_lines(s, i)?;
+    // Keep the horizontal and vertical lines so we can restore the grid later.
+    let horizontal_lines = std::mem::take(&mut s.horizontal_lines);
+    let vertical_lines = std::mem::take(&mut s.vertical_lines);
+    let images = std::mem::take(&mut s.images);
+    s.init_from_images(images);
+    s.horizontal_lines = horizontal_lines;
+    s.vertical_lines = vertical_lines;
+    Ok(())
+}
+
+fn insert_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &*s.images[i];
+    let mut new_image = vec![];
+    let lines = &s.horizontal_lines[i];
+    let mut line_i = 0;
+    let (width, height) = s.width_and_height(i);
+    for y in 0..height {
+        while line_i < lines.len() && new_image.len() == lines[line_i].pos as usize {
+            new_image.push(vec![lines[line_i].color; width as usize]);
+            line_i += 1;
+        }
+        new_image.push(image[y as usize].clone());
+    }
+    s.images[i] = Rc::new(new_image);
+    Ok(())
+}
+
+fn insert_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &*s.images[i];
+    let mut new_image = vec![];
+    let lines = &s.vertical_lines[i];
+    let (width, height) = s.width_and_height(i);
+    for y in 0..height {
+        let mut row = vec![];
+        let mut line_i = 0;
+        for x in 0..width {
+            while line_i < lines.len() && row.len() == lines[line_i].pos as usize {
+                row.push(lines[line_i].color);
+                line_i += 1;
+            }
+            row.push(image[y as usize][x as usize]);
+        }
+        new_image.push(row);
+    }
+    s.images[i] = Rc::new(new_image);
+    Ok(())
+}
+
+fn restore_grid(s: &mut SolverState, i: usize) -> Res<()> {
+    insert_horizontal_lines(s, i)?;
+    insert_vertical_lines(s, i)?;
+    Ok(())
+}
+
+fn connect_aligned_pixels_in_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    let mut new_image = (*s.images[i]).clone();
+    for shape in &s.shapes[i] {
+        let bb = shape.bounding_box();
+        let shape_as_image = shape.as_image();
+        for cell in &shape.cells {
+            for dir in tools::DIRECTIONS4 {
+                for distance in 1..10 {
+                    let image_pos = *cell + distance * dir;
+                    let shape_pos = image_pos - bb.top_left();
+                    if tools::lookup_in_image(&shape_as_image, shape_pos.x, shape_pos.y)
+                        .unwrap_or(0)
+                        != 0
+                    {
+                        for d in 1..distance {
+                            let pos = *cell + d * dir;
+                            new_image[pos.y as usize][pos.x as usize] = cell.color;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    s.images[i] = Rc::new(new_image);
     Ok(())
 }
 
@@ -1004,6 +1202,13 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         Each(use_previous_color),
         Each(filter_shapes_by_color),
         Each(move_shapes_to_touch_saved_shape),
+    ],
+    &[
+        // 8
+        Each(remove_grid),
+        All(use_colorsets_as_shapes),
+        Each(connect_aligned_pixels_in_shapes),
+        Each(restore_grid),
     ],
     &[
         // 11

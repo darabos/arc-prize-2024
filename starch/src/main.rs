@@ -75,7 +75,7 @@ fn main() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // let debug = (6, "05269061");
+    // let debug = (8, "06df4c85");
     let debug = (-1, "");
     for (name, task) in tasks.iter().filter(|(k, _)| debug.0 < 0 || *k == debug.1) {
         // println!("Task: {}", name);

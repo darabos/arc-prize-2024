@@ -67,6 +67,12 @@ pub struct Shape {
     pub has_relative_colors: bool,    // Color numbers are indexes into state.colors.
     pub has_relative_positions: bool, // x/y are relative to the top-left corner of the shape.
 }
+#[derive(Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+pub struct Line {
+    pub pos: i32,
+    pub color: i32,
+}
+pub type Lines = Vec<Line>;
 
 pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
 pub const DOWN: Vec2 = Vec2 { x: 0, y: 1 };
@@ -213,6 +219,57 @@ pub fn find_colorsets_in_image(image: &Image) -> Vec<Rc<Shape>> {
         .collect()
 }
 
+pub fn find_horizontal_lines_in_image(image: &Image) -> Lines {
+    let mut lines = vec![];
+    let mut last_line = -10;
+    'outer: for y in 0..image.len() {
+        let color = image[y][0];
+        if color == 0 {
+            continue;
+        }
+        for x in 0..image[0].len() {
+            if image[y][x] != color {
+                continue 'outer;
+            }
+        }
+        if y as i32 == last_line + 1 {
+            lines.pop();
+        } else {
+            lines.push(Line {
+                pos: y as i32,
+                color,
+            });
+        }
+        last_line = y as i32;
+    }
+    lines
+}
+pub fn find_vertical_lines_in_image(image: &Image) -> Lines {
+    let mut lines = vec![];
+    let mut last_line = -10;
+    'outer: for x in 0..image[0].len() {
+        let color = image[0][x];
+        if color == 0 {
+            continue;
+        }
+        for y in 0..image.len() {
+            if image[y][x] != color {
+                continue 'outer;
+            }
+        }
+        if x as i32 == last_line + 1 {
+            lines.pop();
+        } else {
+            lines.push(Line {
+                pos: x as i32,
+                color,
+            });
+        }
+        last_line = x as i32;
+    }
+    lines
+}
+
 pub fn shape_by_color(shapes: &[Rc<Shape>], color: i32) -> Option<Rc<Shape>> {
     for shape in shapes {
         if shape.color() == color {
@@ -257,6 +314,24 @@ impl std::ops::Add<Vec2> for Vec2 {
         }
     }
 }
+impl std::ops::Sub<Vec2> for Vec2 {
+    type Output = Vec2;
+    fn sub(self, other: Vec2) -> Vec2 {
+        Vec2 {
+            x: self.x - other.x,
+            y: self.y - other.y,
+        }
+    }
+}
+impl std::ops::Add<Vec2> for Pixel {
+    type Output = Vec2;
+    fn add(self, other: Vec2) -> Vec2 {
+        Vec2 {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
+    }
+}
 
 pub struct Rect {
     pub top: i32,
@@ -269,6 +344,12 @@ impl Rect {
         Vec2 {
             x: self.right - 1,
             y: self.bottom - 1,
+        }
+    }
+    pub fn top_left(&self) -> Vec2 {
+        Vec2 {
+            x: self.left,
+            y: self.top,
         }
     }
     pub fn width(&self) -> i32 {
@@ -287,6 +368,7 @@ impl Rect {
 }
 
 impl Shape {
+    #[must_use]
     pub fn new(mut cells: Vec<Pixel>) -> Shape {
         cells.sort();
         Shape {
@@ -294,6 +376,7 @@ impl Shape {
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn bounding_box(&self) -> Rect {
         let mut top = std::i32::MAX;
         let mut left = std::i32::MAX;
@@ -313,6 +396,7 @@ impl Shape {
         }
     }
 
+    #[must_use]
     pub fn color_at(&self, x: i32, y: i32) -> Option<i32> {
         for Pixel {
             x: px,
@@ -326,6 +410,7 @@ impl Shape {
         }
         None
     }
+    #[must_use]
     pub fn does_overlap(&self, other: &Shape) -> bool {
         // Quick check by bounding box.
         let a_box = self.bounding_box();
@@ -394,6 +479,7 @@ impl Shape {
             cell.color = color;
         }
     }
+    #[must_use]
     pub fn color(&self) -> i32 {
         self.cells[0].color
     }
@@ -442,10 +528,8 @@ impl Shape {
 
     pub fn draw_where_non_empty(&self, image: &mut Image) {
         for Pixel { x, y, color } in &self.cells {
-            if let Ok(c) = lookup_in_image(image, *x, *y) {
-                if c != 0 {
-                    image[*y as usize][*x as usize] = *color;
-                }
+            if lookup_in_image(image, *x, *y).unwrap_or(0) != 0 {
+                image[*y as usize][*x as usize] = *color;
             }
         }
     }
@@ -457,6 +541,7 @@ impl Shape {
             .collect();
     }
 
+    #[must_use]
     pub fn from_image(image: &Image) -> Shape {
         let mut cells = vec![];
         for x in 0..image[0].len() {
@@ -475,6 +560,7 @@ impl Shape {
         }
     }
 
+    #[must_use]
     pub fn is_touching_border(&self, image: &Image) -> bool {
         for Pixel { x, y, color: _ } in &self.cells {
             if *x == 0 || *y == 0 || *x == image[0].len() as i32 - 1 || *y == image.len() as i32 - 1
@@ -504,6 +590,7 @@ impl Shape {
         self.has_relative_colors = true;
     }
 
+    #[must_use]
     pub fn covers(&self, other: &Shape) -> bool {
         for Pixel { x, y, color: _ } in &other.cells {
             if self.color_at(*x, *y).is_none() {
@@ -513,6 +600,7 @@ impl Shape {
         true
     }
 
+    #[must_use]
     pub fn to_relative_pos(&self) -> Shape {
         let min_x = self.cells.iter().map(|cell| cell.x).min().unwrap();
         let min_y = self.cells.iter().map(|cell| cell.y).min().unwrap();
@@ -532,6 +620,7 @@ impl Shape {
         }
     }
 
+    #[must_use]
     pub fn find_matching_shape_index(&self, shapes: &[Rc<Shape>]) -> Option<usize> {
         for (i, shape) in shapes.iter().enumerate() {
             if self == shape.as_ref() {
@@ -539,6 +628,16 @@ impl Shape {
             }
         }
         None
+    }
+
+    #[must_use]
+    pub fn as_image(&self) -> Image {
+        let box_ = self.bounding_box();
+        let mut image = vec![vec![0; box_.width() as usize]; box_.height() as usize];
+        for Pixel { x, y, color } in &self.cells {
+            image[(y - box_.top) as usize][(x - box_.left) as usize] = *color;
+        }
+        image
     }
 }
 
@@ -691,10 +790,8 @@ pub fn measure_boxes_with_radius(image: &Image, dots: &Shape, radius: i32) -> us
             for dy in -radius..=radius {
                 let nx = x + dx;
                 let ny = y + dy;
-                if let Ok(color) = lookup_in_image(image, nx, ny) {
-                    if color != 0 {
-                        count += 1;
-                    }
+                if lookup_in_image(image, nx, ny).unwrap_or(0) != 0 {
+                    count += 1;
                 }
             }
         }
@@ -708,14 +805,13 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
         for dy in -radius..=radius {
             let nx = dot.x + dx;
             let ny = dot.y + dy;
-            if let Ok(color) = lookup_in_image(image, nx, ny) {
-                if color != 0 {
-                    cells.push(Pixel {
-                        x: dx,
-                        y: dy,
-                        color,
-                    });
-                }
+            let color = lookup_in_image(image, nx, ny).unwrap_or(0);
+            if color != 0 {
+                cells.push(Pixel {
+                    x: dx,
+                    y: dy,
+                    color,
+                });
             }
         }
     }
