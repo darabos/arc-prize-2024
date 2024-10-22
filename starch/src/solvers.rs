@@ -240,6 +240,16 @@ impl SolverState {
             println!();
         }
     }
+
+    pub fn run_steps(&mut self, steps: &[SolverStep]) -> Res<()> {
+        for step in steps {
+            match step {
+                SolverStep::Each(f) => self.apply(f)?,
+                SolverStep::All(f) => f(self)?,
+            }
+        }
+        Ok(())
+    }
 }
 
 #[allow(dead_code)]
@@ -556,59 +566,59 @@ fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
     Err(err!("no match found"))
 }
 
-fn solve_example_7(state: &mut SolverState) -> Res<()> {
-    state.apply(order_shapes_by_color)?;
-    state.apply(order_colors_by_shapes)?;
-    state.apply(use_next_color)?;
-    save_shapes(state)?;
-    state.apply(filter_shapes_by_color)?;
-    save_shapes_and_load_previous(state)?;
-    state.apply(use_previous_color)?;
-    state.apply(filter_shapes_by_color)?;
-    state.apply(move_shapes_to_saved_shape)
-}
-
-fn solve_example_11(state: &mut SolverState) -> Res<()> {
-    use_colorsets_as_shapes(state)?;
-    state.apply(sort_shapes_by_size)?;
-    state.apply(order_colors_by_shapes)?;
-    grow_flowers(state)
-}
-
-fn solve_example_0(state: &mut SolverState) -> Res<()> {
-    state.apply(save_image_as_shape)?;
-    scale_up_image(state)?;
-    state.apply(tile_shapes)?;
-    state.apply(draw_shape_where_non_empty)
-}
-
-fn solve_example_1(state: &mut SolverState) -> Res<()> {
-    state.apply(filter_shapes_by_color)?;
-    recolor_shapes_per_output(state)?;
-    state.apply(draw_shapes)
-}
-
-fn solve_example_2(state: &mut SolverState) -> Res<()> {
-    use_output_size(state)?;
-    use_colorsets_as_shapes(state)?;
-    state.apply(find_repeating_pattern)?;
-    recolor_shapes_per_output(state)?;
-    state.apply(draw_shapes)
-}
-
-fn solve_example_3(state: &mut SolverState) -> Res<()> {
-    save_shapes(state)?;
-    state.apply(pick_bottom_right_shape_per_color)?;
-    load_shapes_except_current_shapes(state)?;
-    move_shapes_per_output(state)
-}
-
 type Solver = fn(&mut SolverState) -> Res<()>;
-pub const SOLVERS: &[Solver] = &[
-    solve_example_0,
-    solve_example_1,
-    solve_example_2,
-    solve_example_3,
-    solve_example_7,
-    solve_example_11,
+pub enum SolverStep {
+    Each(fn(&mut SolverState, usize) -> Res<()>),
+    All(fn(&mut SolverState) -> Res<()>),
+}
+
+const example_7: &[SolverStep] = &[
+    SolverStep::Each(order_shapes_by_color),
+    SolverStep::Each(order_colors_by_shapes),
+    SolverStep::Each(use_next_color),
+    SolverStep::All(save_shapes),
+    SolverStep::Each(filter_shapes_by_color),
+    SolverStep::All(save_shapes_and_load_previous),
+    SolverStep::Each(use_previous_color),
+    SolverStep::Each(filter_shapes_by_color),
+    SolverStep::Each(move_shapes_to_saved_shape),
+];
+
+const example_11: &[SolverStep] = &[
+    SolverStep::All(use_colorsets_as_shapes),
+    SolverStep::Each(sort_shapes_by_size),
+    SolverStep::Each(order_colors_by_shapes),
+    SolverStep::All(grow_flowers),
+];
+
+const example_0: &[SolverStep] = &[
+    SolverStep::Each(save_image_as_shape),
+    SolverStep::All(scale_up_image),
+    SolverStep::Each(tile_shapes),
+    SolverStep::Each(draw_shape_where_non_empty),
+];
+
+const example_1: &[SolverStep] = &[
+    SolverStep::Each(filter_shapes_by_color),
+    SolverStep::All(recolor_shapes_per_output),
+    SolverStep::Each(draw_shapes),
+];
+
+const example_2: &[SolverStep] = &[
+    SolverStep::All(use_output_size),
+    SolverStep::All(use_colorsets_as_shapes),
+    SolverStep::Each(find_repeating_pattern),
+    SolverStep::All(recolor_shapes_per_output),
+    SolverStep::Each(draw_shapes),
+];
+
+const example_3: &[SolverStep] = &[
+    SolverStep::All(save_shapes),
+    SolverStep::Each(pick_bottom_right_shape_per_color),
+    SolverStep::All(load_shapes_except_current_shapes),
+    SolverStep::All(move_shapes_per_output),
+];
+
+pub const SOLVERS: &[&[SolverStep]] = &[
+    example_0, example_1, example_2, example_3, example_7, example_11,
 ];

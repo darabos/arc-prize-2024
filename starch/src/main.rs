@@ -83,7 +83,7 @@ fn main() {
         // for solver in &solvers::SOLVERS[0..1] {
         for solver in solvers::SOLVERS {
             let mut s = state.clone();
-            if let Err(_error) = solver(&mut s) {
+            if let Err(_error) = s.run_steps(solver) {
                 // println!("{}: {}", name, _error.red());
                 continue;
             }
