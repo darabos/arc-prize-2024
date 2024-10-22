@@ -277,6 +277,13 @@ impl Rect {
     pub fn height(&self) -> i32 {
         self.bottom - self.top + 1
     }
+
+    pub fn is_horizontal_line(&self) -> bool {
+        self.height() == 1 && self.width() > 1
+    }
+    pub fn is_vertical_line(&self) -> bool {
+        self.width() == 1 && self.height() > 1
+    }
 }
 
 impl Shape {
@@ -559,6 +566,21 @@ pub fn paint_shape(image: &mut Image, shape: &Shape, color: i32) {
         }
         image[*y as usize][*x as usize] = color;
     }
+}
+
+pub fn crop_image(image: &Image, left: i32, top: i32, width: i32, height: i32) -> Image {
+    let mut new_image = vec![vec![0; width as usize]; height as usize];
+    for y in 0..height {
+        for x in 0..width {
+            let nx = left + x;
+            let ny = top + y;
+            if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+                continue;
+            }
+            new_image[y as usize][x as usize] = image[ny as usize][nx as usize];
+        }
+    }
+    new_image
 }
 
 pub fn remove_shape(image: &mut Image, shape: &Shape) {

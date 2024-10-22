@@ -217,10 +217,30 @@ impl SolverState {
         let height = self.images[i].len() as i32;
         (width, height)
     }
+    fn width_and_height_all(&self) -> Res<(i32, i32)> {
+        let (w, h) = self.width_and_height(0);
+        for i in 1..self.images.len() {
+            let (w1, h1) = self.width_and_height(i);
+            if w1 != w || h1 != h {
+                return Err("images have different sizes");
+            }
+        }
+        Ok((w, h))
+    }
     fn output_width_and_height(&self, i: usize) -> (i32, i32) {
         let width = self.output_images[i][0].len() as i32;
         let height = self.output_images[i].len() as i32;
         (width, height)
+    }
+    fn output_width_and_height_all(&self) -> Res<(i32, i32)> {
+        let (w, h) = self.output_width_and_height(0);
+        for i in 1..self.output_images.len() {
+            let (w1, h1) = self.output_width_and_height(i);
+            if w1 != w || h1 != h {
+                return Err("output images have different sizes");
+            }
+        }
+        Ok((w, h))
     }
 
     #[allow(dead_code)]
@@ -715,6 +735,101 @@ fn recolor_saved_shapes_to_current_shape(s: &mut SolverState, i: usize) -> Res<(
     Ok(())
 }
 
+fn split_into_two_images(s: &mut SolverState) -> Res<()> {
+    let (width, height) = s.width_and_height_all()?;
+    let (output_width, output_height) = s.output_width_and_height_all()?;
+    if width == output_width * 2 + 1 {
+        let mut to_save = vec![];
+        for image in &mut s.images {
+            let left_image = Rc::new(tools::crop_image(image, 0, 0, width / 2, height));
+            let right_image = Rc::new(tools::crop_image(
+                image,
+                width / 2 + 1,
+                0,
+                width / 2,
+                height,
+            ));
+            *image = left_image;
+            to_save.push(right_image);
+        }
+        s.saved_images.push(to_save);
+        return Ok(());
+    } else if height == output_height * 2 + 1 {
+        let mut to_save = vec![];
+        for image in &mut s.images {
+            let top_image = Rc::new(tools::crop_image(image, 0, 0, width, height / 2));
+            let bottom_image = Rc::new(tools::crop_image(
+                image,
+                0,
+                height / 2 + 1,
+                width,
+                height / 2,
+            ));
+            *image = top_image;
+            to_save.push(bottom_image);
+        }
+        s.saved_images.push(to_save);
+        return Ok(());
+    }
+    Err(err!("no split found"))
+}
+
+fn boolean_with_saved_image_and(s: &mut SolverState, i: usize) -> Res<()> {
+    boolean_with_saved_image_function(s, i, |a, b| if a == 0 { 0 } else { b })
+}
+fn boolean_with_saved_image_or(s: &mut SolverState, i: usize) -> Res<()> {
+    boolean_with_saved_image_function(s, i, |a, b| if a == 0 { b } else { a })
+}
+fn boolean_with_saved_image_xor(s: &mut SolverState, i: usize) -> Res<()> {
+    boolean_with_saved_image_function(s, i, |a, b| {
+        if a == 0 {
+            b
+        } else if b == 0 {
+            a
+        } else {
+            0
+        }
+    })
+}
+
+fn boolean_with_saved_image_function(
+    s: &mut SolverState,
+    i: usize,
+    func: fn(i32, i32) -> i32,
+) -> Res<()> {
+    let saved_image = &s.saved_images.last().ok_or(err!("no saved images"))?[i];
+    let mut new_image: Image = (*s.images[i]).clone();
+    for i in 0..new_image.len() {
+        for j in 0..new_image[0].len() {
+            let a = new_image[i][j];
+            let b = saved_image[i][j];
+            new_image[i][j] = func(a, b);
+        }
+    }
+    s.images[i] = Rc::new(new_image);
+    Ok(())
+}
+
+fn recolor_image_per_output(s: &mut SolverState) -> Res<()> {
+    let used_colors = tools::get_used_colors(&s.output_images);
+    if used_colors.len() != 1 {
+        return Err("output images have different colors");
+    }
+    let color = used_colors[0];
+    for image in &mut s.images {
+        let new_image = image
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|&c| if c == 0 { 0 } else { color })
+                    .collect()
+            })
+            .collect();
+        *image = Rc::new(new_image);
+    }
+    Ok(())
+}
+
 pub enum SolverStep {
     Each(fn(&mut SolverState, usize) -> Res<()>),
     All(fn(&mut SolverState) -> Res<()>),
@@ -761,6 +876,12 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         Each(repeat_last_move_and_draw),
     ],
     &[
+        // 5
+        All(split_into_two_images),
+        Each(boolean_with_saved_image_and),
+        All(recolor_image_per_output),
+    ],
+    &[
         // 7
         Each(use_next_color),
         Each(filter_shapes_by_color),
@@ -775,5 +896,17 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         Each(order_shapes_by_size_increasing),
         Each(order_colors_by_shapes),
         All(grow_flowers),
+    ],
+    &[
+        // 71
+        All(split_into_two_images),
+        Each(boolean_with_saved_image_xor),
+        All(recolor_image_per_output),
+    ],
+    &[
+        // ???
+        All(split_into_two_images),
+        Each(boolean_with_saved_image_or),
+        All(recolor_image_per_output),
     ],
 ];

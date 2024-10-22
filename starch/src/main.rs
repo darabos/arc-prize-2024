@@ -75,16 +75,23 @@ fn main() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // for (name, task) in tasks.iter().filter(|(k, _)| *k == "045e512c") {
-    for (name, task) in &tasks {
+    // let debug = (5, "0520fde7");
+    let debug = (-1, "");
+    for (name, task) in tasks.iter().filter(|(k, _)| debug.0 < 0 || *k == debug.1) {
         // println!("Task: {}", name);
         // tools::print_task(task);
         let state = solvers::SolverState::new(task);
-        // for solver in &solvers::SOLVERS[0..1] {
-        for solver in solvers::SOLVERS {
+        let active_solvers = if debug.0 < 0 {
+            &solvers::SOLVERS
+        } else {
+            &solvers::SOLVERS[debug.0 as usize..debug.0 as usize + 1]
+        };
+        for solver in active_solvers {
             let mut s = state.clone();
-            if let Err(_error) = s.run_steps(solver) {
-                // println!("{}: {}", name, _error.red());
+            if let Err(error) = s.run_steps(solver) {
+                if debug.0 >= 0 {
+                    println!("{}: {}", name, error.red());
+                }
                 continue;
             }
             let solutions = s.get_results()[task.train.len()..].to_vec();
@@ -95,12 +102,20 @@ fn main() {
             for i in 0..ref_images.len() {
                 let ref_image = &ref_images[i];
                 let image = &solutions[i].output;
-                // tools::print_image(image);
+                if debug.0 >= 0 {
+                    tools::print_image(image);
+                }
                 if !tools::compare_images(ref_image, image) {
+                    if debug.0 >= 0 {
+                        println!("expected:");
+                        tools::print_image(ref_image);
+                    }
                     all_correct = false;
                     break;
                 }
-                tools::print_image(image);
+                if debug.0 < 0 {
+                    tools::print_image(image);
+                }
                 println!("{}: {}", name, "Correct".green());
             }
             if all_correct {
