@@ -16,6 +16,14 @@ macro_rules! must_have {
         }
     };
 }
+/// Returns an error if the given Vec is empty.
+macro_rules! must_have {
+    ($e:expr) => {
+        if $e.is_empty() {
+            return Err(err!("empty"));
+        }
+    };
+}
 
 pub fn use_colorsets_as_shapes(s: &mut SolverState) -> Res<()> {
     s.shapes = s.colorsets.clone();
@@ -175,6 +183,7 @@ pub struct SolverState {
     pub vertical_lines: LinesPerExample,
     // If this is set, we will apply steps to these states.
     pub substates: Option<Vec<SolverState>>,
+    pub steps: Vec<&'static SolverStep>,
 }
 
 impl SolverState {
@@ -230,26 +239,19 @@ impl SolverState {
         if self.images.is_empty() {
             return Err("no images");
         }
-        if self.images.len() != self.task.train.len() + self.task.test.len() {
-            return Err("wrong number of images");
-        }
         if self.images.iter().any(|image| image.is_empty()) {
             return Err("empty image");
         }
         if self.images.iter().any(|image| image[0].is_empty()) {
             return Err("empty image");
         }
-        if self.output_images.is_empty() {
-            return Err("no output images");
-        }
-        if self.output_images.len() != self.task.train.len() {
-            return Err("wrong number of output images");
-        }
-        if self.output_images.iter().any(|image| image.is_empty()) {
-            return Err("empty output image");
-        }
-        if self.output_images.iter().any(|image| image[0].is_empty()) {
-            return Err("empty output image");
+        if !self.output_images.is_empty() {
+            if self.output_images.iter().any(|image| image.is_empty()) {
+                return Err("empty output image");
+            }
+            if self.output_images.iter().any(|image| image[0].is_empty()) {
+                return Err("empty output image");
+            }
         }
         if self.colors.is_empty() {
             return Err("no colors");
@@ -280,6 +282,11 @@ impl SolverState {
         }
         if self.vertical_lines.len() != self.images.len() {
             return Err("wrong number of vertical line lists");
+        }
+        if let Some(substates) = &self.substates {
+            for substate in substates {
+                substate.validate()?;
+            }
         }
         Ok(())
     }
@@ -396,7 +403,7 @@ impl SolverState {
             .collect()
     }
 
-    pub fn run_steps(&mut self, steps: &[SolverStep]) -> Res<()> {
+    pub fn run_steps(&mut self, steps: &'static [SolverStep]) -> Res<()> {
         for step in steps {
             self.validate()?;
             self.run_step(step)?;
@@ -404,7 +411,16 @@ impl SolverState {
         Ok(())
     }
 
-    pub fn run_step(&mut self, step: &SolverStep) -> Res<()> {
+    pub fn run_step_safe(&mut self, step: &'static SolverStep) -> Res<()> {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run_step(step)));
+        match result {
+            Ok(res) => res,
+            Err(_) => Err(err!("panic")),
+        }
+    }
+
+    pub fn run_step(&mut self, step: &'static SolverStep) -> Res<()> {
+        self.steps.push(step);
         if let Some(substates) = &mut self.substates {
             let mut new_images = vec![];
             for state in substates {
@@ -657,6 +673,7 @@ fn find_repeating_pattern(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn use_output_size(s: &mut SolverState) -> Res<()> {
+    must_have!(&s.output_images);
     let (current_width, current_height) = s.width_and_height(0);
     let (output_width, output_height) = s.output_width_and_height(0);
     if current_width == output_width && current_height == output_height {

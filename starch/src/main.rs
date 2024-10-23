@@ -42,14 +42,14 @@ pub fn parse_task(task: &serde_json::Value) -> Task {
     Task { train, test }
 }
 
-pub fn read_arc_file(file_path: &str) -> Map<String, Task> {
+pub fn read_arc_file(file_path: &str) -> Vec<(String, Task)> {
     let contents = fs::read_to_string(file_path).expect("Should have been able to read the file");
     let data: serde_json::Value =
         serde_json::from_str(&contents).expect("Should have been able to parse the json");
     let data = data.as_object().expect("Should have been an object");
-    let mut tasks = Map::new();
+    let mut tasks = Vec::new();
     for (key, task) in data {
-        tasks.insert(key.clone(), parse_task(task));
+        tasks.push((key.clone(), parse_task(task)));
     }
     tasks
 }
@@ -83,7 +83,7 @@ fn automatic_solver(task: &Task) -> tools::Res<Vec<Example>> {
         budget -= 1;
         for step in solvers::ALL_STEPS {
             let mut s = state.clone();
-            if s.run_step(step).is_ok() {
+            if s.run_step_safe(step).is_ok() {
                 if let Err(error) = s.validate() {
                     println!("{} after {}", error.red(), step);
                 }
@@ -103,8 +103,8 @@ fn evaluate_automatic_solver() {
     let mut correct = 0;
     // let debug = "06df4c85";
     let debug = "";
-    let tasks = if debug == "" {
-        tasks
+    let tasks: Vec<(String, Task)> = if debug == "" {
+        tasks //.into_iter().skip(30).collect()
     } else {
         tasks.into_iter().filter(|(k, _)| *k == debug).collect()
     };
@@ -139,7 +139,6 @@ fn evaluate_automatic_solver() {
             }
             if all_correct {
                 correct += 1;
-                break;
             }
         }
     }
@@ -211,6 +210,6 @@ fn evaluate_manual_solvers() {
 }
 
 fn main() {
-    // evaluate_automatic_solver();
-    evaluate_manual_solvers();
+    evaluate_automatic_solver();
+    // evaluate_manual_solvers();
 }
