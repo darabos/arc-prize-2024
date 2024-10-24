@@ -97,6 +97,7 @@ fn automatic_solver(task: &Task) -> tools::Res<Vec<Example>> {
     Err("No solution found")
 }
 
+#[allow(dead_code)]
 fn evaluate_automatic_solver() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
@@ -146,11 +147,12 @@ fn evaluate_automatic_solver() {
     println!("Correct: {}/{}", correct, tasks.len());
 }
 
+#[allow(dead_code)]
 fn evaluate_manual_solvers() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // let debug = (8, "06df4c85");
+    // let debug = (9, "08ed6ac7");
     let debug = (-1, "");
     let tasks = if debug.0 < 0 {
         tasks
@@ -210,6 +212,6 @@ fn evaluate_manual_solvers() {
 }
 
 fn main() {
-    evaluate_automatic_solver();
-    // evaluate_manual_solvers();
+    // evaluate_automatic_solver();
+    evaluate_manual_solvers();
 }

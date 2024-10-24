@@ -16,10 +16,10 @@ macro_rules! must_have {
         }
     };
 }
-/// Returns an error if the given Vec is empty.
-macro_rules! must_have {
+/// Returns an error if any of the Vecs is empty.
+macro_rules! must_all_be_non_empty {
     ($e:expr) => {
-        if $e.is_empty() {
+        if $e.iter().any(|e| e.is_empty()) {
             return Err(err!("empty"));
         }
     };
@@ -581,28 +581,48 @@ fn delete_shapes_touching_border(s: &mut SolverState, i: usize) -> Res<()> {
 
 fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
     must_have!(&s.output_images);
-    // Get color from first output_image.
-    let first_shape = &s.shapes[0].get(0).ok_or("no shapes")?;
-    let color = tools::lookup_in_image(
-        &s.output_images[0],
-        first_shape.cells[0].x,
-        first_shape.cells[0].y,
-    )?;
+    // Get colors from first output_image.
+    let shapes = &s.shapes[0];
+    let colors: Res<Vec<i32>> = shapes
+        .iter()
+        .map(|shape| {
+            tools::lookup_in_image(&s.output_images[0], shape.cells[0].x, shape.cells[0].y)
+        })
+        .collect();
+    let mut colors = colors?;
+    if colors.is_empty() {
+        return Err(err!("no colors"));
+    }
+    let all_same_color = colors.iter().all(|&c| c == colors[0]);
     // Fail the operation if any shape in any output has a different color.
     for (i, image) in s.output_images.iter_mut().enumerate() {
-        for shape in &mut s.shapes[i] {
+        for (j, shape) in &mut s.shapes[i].iter().enumerate() {
             let cell = &shape.cells[0];
             if let Ok(c) = tools::lookup_in_image(image, cell.x, cell.y) {
-                if c != color {
-                    return Err(err!("output shapes have different colors"));
+                if all_same_color {
+                    if c != colors[0] {
+                        return Err(err!("output shapes have different colors"));
+                    }
+                } else {
+                    while j >= colors.len() {
+                        colors.push(c);
+                    }
+                    if c != colors[j] {
+                        return Err(err!("output shapes have different colors"));
+                    }
                 }
             }
         }
     }
     // Recolor shapes.
     for shapes in &mut s.shapes {
-        for shape in shapes {
+        for (j, shape) in shapes.iter_mut().enumerate() {
             let mut new_shape = (**shape).clone();
+            let color = if all_same_color {
+                colors[0]
+            } else {
+                colors[j % colors.len()]
+            };
             new_shape.recolor(color);
             *shape = new_shape.into();
         }
@@ -1313,6 +1333,12 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         All(use_colorsets_as_shapes),
         Each(connect_aligned_pixels_in_shapes),
         Each(restore_grid),
+    ],
+    &[
+        // 9
+        Each(order_shapes_by_size_increasing),
+        All(recolor_shapes_per_output),
+        Each(draw_shapes),
     ],
     &[
         // 11

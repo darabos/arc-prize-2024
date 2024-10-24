@@ -828,6 +828,7 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
 }
 
 pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Shape {
+    // TODO: This is slow. Limit radius? Build pattern incrementally?
     let mut radius = 0;
     let mut last_measure = 0;
     loop {
