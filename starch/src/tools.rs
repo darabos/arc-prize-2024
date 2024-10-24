@@ -46,7 +46,7 @@ pub struct Example {
 
 pub type Res<T> = Result<T, &'static str>;
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Vec2 {
     pub x: i32,
     pub y: i32,
@@ -67,7 +67,7 @@ pub struct Shape {
     pub has_relative_colors: bool,    // Color numbers are indexes into state.colors.
     pub has_relative_positions: bool, // x/y are relative to the top-left corner of the shape.
 }
-#[derive(Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Line {
     pub pos: i32,
     pub color: i32,
@@ -891,16 +891,17 @@ pub fn get_used_colors(images: &[Rc<Image>]) -> Vec<i32> {
     used_colors
 }
 
-pub fn scale_up_image(image: &Image, ratio: usize) -> Image {
-    let height = image.len() * ratio;
-    let width = image[0].len() * ratio;
+pub fn scale_up_image(image: &Image, ratio: Vec2) -> Image {
+    let (rx, ry) = (ratio.x as usize, ratio.y as usize);
+    let height = image.len() * ry;
+    let width = image[0].len() * rx;
     let mut new_image = vec![vec![0; width]; height];
     for y in 0..image.len() {
         for x in 0..image[0].len() {
             let color = image[y][x];
-            for dy in 0..ratio {
-                for dx in 0..ratio {
-                    new_image[y * ratio + dy][x * ratio + dx] = color;
+            for dy in 0..ry {
+                for dx in 0..rx {
+                    new_image[y * rx + dy][x * ry + dx] = color;
                 }
             }
         }
@@ -923,4 +924,51 @@ pub fn compare_images(a: &Image, b: &Image) -> bool {
         }
     }
     true
+}
+
+/// Given a grid of lines, returns the images that are separated by the lines.
+pub fn grid_cut_image(
+    image: &Image,
+    horizontal_lines: &Lines,
+    vertical_lines: &Lines,
+) -> Vec<Image> {
+    let mut images = vec![];
+    for y in 0..=horizontal_lines.len() {
+        let start_y = if y == 0 {
+            0
+        } else {
+            horizontal_lines[y - 1].pos + 1
+        };
+        let end_y = if y == horizontal_lines.len() {
+            image.len() as i32
+        } else {
+            horizontal_lines[y].pos
+        };
+        if end_y <= start_y {
+            continue;
+        }
+        for x in 0..=vertical_lines.len() {
+            let start_x = if x == 0 {
+                0
+            } else {
+                vertical_lines[x - 1].pos + 1
+            };
+            let end_x = if x == vertical_lines.len() {
+                image[0].len() as i32
+            } else {
+                vertical_lines[x].pos
+            };
+            if end_x <= start_x {
+                continue;
+            }
+            let new_image = crop_image(image, start_x, start_y, end_x - start_x, end_y - start_y);
+            images.push(new_image);
+        }
+    }
+    images
+}
+
+/// Returns the number of non-zero pixels in the image.
+pub fn count_non_zero_pixels(image: &Image) -> usize {
+    image.iter().flatten().filter(|&&cell| cell != 0).count()
 }

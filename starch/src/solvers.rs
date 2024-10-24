@@ -176,7 +176,7 @@ pub struct SolverState {
     pub shapes: ShapesPerExample,
     pub saved_shapes: Vec<ShapesPerExample>,
     pub colorsets: ShapesPerExample,
-    pub scale_up: i32,
+    pub scale_up: tools::Vec2,
     pub last_move: tools::Vec2,
     // Lines that go all the way through the image.
     pub horizontal_lines: LinesPerExample,
@@ -516,6 +516,7 @@ fn move_shapes_to_touch_saved_shape(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+/// Scales up the image to match the output image.
 fn scale_up_image(s: &mut SolverState) -> Res<()> {
     must_have!(&s.output_images);
     // Find ratio from looking at example outputs.
@@ -524,11 +525,53 @@ fn scale_up_image(s: &mut SolverState) -> Res<()> {
     if output_size % input_size != 0 {
         return Err(err!("output size must be a multiple of input size"));
     }
-    s.scale_up = output_size / input_size;
+    let scale = output_size / input_size;
+    s.scale_up = tools::Vec2 { x: scale, y: scale };
     s.apply(|s: &mut SolverState, i: usize| {
-        s.images[i] = Rc::new(tools::scale_up_image(&s.images[i], s.scale_up as usize));
+        s.images[i] = Rc::new(tools::scale_up_image(&s.images[i], s.scale_up));
         Ok(())
     })
+}
+
+/// Scales up the image to match the output image after adding a grid stored in horizontal_lines and
+/// vertical_lines.
+fn scale_up_image_add_grid(s: &mut SolverState) -> Res<()> {
+    must_have!(&s.output_images);
+    let num_h = s.horizontal_lines[0].len() as i32;
+    let num_v = s.vertical_lines[0].len() as i32;
+    if num_h + num_v == 0 {
+        return Err(err!("no grid"));
+    }
+    if s.horizontal_lines
+        .iter()
+        .any(|lines| lines.len() != num_h as usize)
+    {
+        return Err(err!("horizontal lines have different lengths"));
+    }
+    if s.vertical_lines
+        .iter()
+        .any(|lines| lines.len() != num_v as usize)
+    {
+        return Err(err!("vertical lines have different lengths"));
+    }
+    // Find ratio from looking at example outputs.
+    let (output_width, output_height) = s.output_width_and_height_all()?;
+    let (width, height) = s.width_and_height_all()?;
+    if (output_width - num_v) % width != 0 {
+        return Err(err!("output width must be a multiple of input width"));
+    }
+    if (output_height - num_h) % height != 0 {
+        return Err(err!("output width must be a multiple of input width"));
+    }
+    s.scale_up = tools::Vec2 {
+        x: (output_width - num_v) / width,
+        y: (output_height - num_h) / height,
+    };
+    s.apply(|s: &mut SolverState, i: usize| {
+        s.images[i] = Rc::new(tools::scale_up_image(&s.images[i], s.scale_up));
+        Ok(())
+    })?;
+    s.apply(restore_grid)
 }
 
 fn use_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
@@ -544,13 +587,13 @@ fn use_image_without_background_as_shape(s: &mut SolverState, i: usize) -> Res<(
 }
 
 fn tile_shapes_after_scale_up(s: &mut SolverState, i: usize) -> Res<()> {
-    if s.scale_up <= 1 {
+    if s.scale_up.x <= 1 && s.scale_up.y <= 1 {
         return Err(err!("not scaled up"));
     }
     let (current_width, current_height) = s.width_and_height(i);
     let shapes = &mut s.shapes[i];
-    let old_width = current_width / s.scale_up;
-    let old_height = current_height / s.scale_up;
+    let old_width = current_width / s.scale_up.x;
+    let old_height = current_height / s.scale_up.y;
     for shape in shapes.iter_mut() {
         *shape = shape
             .tile(old_width, current_width, old_height, current_height)
@@ -1213,6 +1256,44 @@ fn connect_aligned_pixels_in_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+fn select_grid_cell_most_filled_in(s: &mut SolverState) -> Res<()> {
+    select_grid_cell_max_by(s, |image| tools::count_non_zero_pixels(image) as i32)
+}
+
+fn select_grid_cell_least_filled_in(s: &mut SolverState) -> Res<()> {
+    select_grid_cell_max_by(s, |image| -(tools::count_non_zero_pixels(image) as i32))
+}
+
+fn select_grid_cell_max_by(s: &mut SolverState, score_func: fn(&Image) -> i32) -> Res<()> {
+    s.apply(|s: &mut SolverState, i: usize| {
+        if s.horizontal_lines[i].len() + s.vertical_lines[i].len() == 0 {
+            return Err(err!("no grid"));
+        }
+        let image = &s.images[i];
+        let hlines = &s.horizontal_lines[i];
+        let vlines = &s.vertical_lines[i];
+        let mut grid_cells = tools::grid_cut_image(image, hlines, vlines);
+        let mut best_index = 0;
+        let mut best_score = std::i32::MIN;
+        for (index, c) in grid_cells.iter().enumerate() {
+            let score = score_func(c);
+            if score > best_score {
+                best_score = score;
+                best_index = index;
+            }
+        }
+        s.images[i] = grid_cells.swap_remove(best_index).into();
+        Ok(())
+    })?;
+    // Keep the horizontal and vertical lines so we can restore the grid later.
+    let horizontal_lines = std::mem::take(&mut s.horizontal_lines);
+    let vertical_lines = std::mem::take(&mut s.vertical_lines);
+    let images = std::mem::take(&mut s.images);
+    s.init_from_images(images);
+    s.horizontal_lines = horizontal_lines;
+    s.vertical_lines = vertical_lines;
+    Ok(())
+}
 pub enum SolverStep {
     Each(fn(&mut SolverState, usize) -> Res<()>),
     All(fn(&mut SolverState) -> Res<()>),
@@ -1237,7 +1318,10 @@ pub const ALL_STEPS: &[SolverStep] = &[
     All(repeat_shapes_on_lattice_per_output),
     All(save_first_shape_use_the_rest),
     All(save_shapes_and_load_previous),
+    All(scale_up_image_add_grid),
     All(scale_up_image),
+    All(select_grid_cell_least_filled_in),
+    All(select_grid_cell_most_filled_in),
     All(split_into_two_images),
     All(use_colorsets_as_shapes),
     All(use_output_size),
@@ -1339,6 +1423,11 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         Each(order_shapes_by_size_increasing),
         All(recolor_shapes_per_output),
         Each(draw_shapes),
+    ],
+    &[
+        // 10
+        All(select_grid_cell_least_filled_in),
+        All(scale_up_image_add_grid),
     ],
     &[
         // 11

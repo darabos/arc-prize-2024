@@ -152,7 +152,7 @@ fn evaluate_manual_solvers() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // let debug = (9, "08ed6ac7");
+    // let debug = (10, "09629e4f");
     let debug = (-1, "");
     let tasks = if debug.0 < 0 {
         tasks
@@ -160,6 +160,12 @@ fn evaluate_manual_solvers() {
         tasks.into_iter().filter(|(k, _)| *k == debug.1).collect()
     };
     let bar = ProgressBar::new(tasks.len() as u64);
+    bar.set_style(
+        indicatif::ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
+        )
+        .expect("no template error"),
+    );
     for (name, task) in &tasks {
         bar.inc(1);
         // println!("Task: {}", name);
@@ -208,6 +214,7 @@ fn evaluate_manual_solvers() {
             }
         }
     }
+    bar.finish();
     println!("Correct: {}/{}", correct, tasks.len());
 }
 
