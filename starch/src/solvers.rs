@@ -162,7 +162,7 @@ type ShapesPerExample = Vec<Shapes>;
 type ImagePerExample = Vec<Rc<Image>>;
 type ColorList = Vec<i32>;
 type ColorListPerExample = Vec<ColorList>;
-type LinesPerExample = Vec<tools::Lines>;
+type LinesPerExample = Vec<Rc<tools::LineSet>>;
 
 /// Tracks information while applying operations on all examples at once.
 /// Most fields are vectors storing information for each example.
@@ -171,7 +171,7 @@ pub struct SolverState {
     pub task: Rc<Task>,
     pub images: ImagePerExample,
     pub saved_images: Vec<ImagePerExample>,
-    pub output_images: Vec<Rc<Image>>,
+    pub output_images: ImagePerExample,
     pub colors: ColorListPerExample,
     pub shapes: ShapesPerExample,
     pub saved_shapes: Vec<ShapesPerExample>,
@@ -179,8 +179,8 @@ pub struct SolverState {
     pub scale_up: tools::Vec2,
     pub last_move: tools::Vec2,
     // Lines that go all the way through the image.
-    pub horizontal_lines: LinesPerExample,
-    pub vertical_lines: LinesPerExample,
+    pub lines: LinesPerExample,
+    pub saved_lines: Vec<LinesPerExample>,
     // If this is set, we will apply steps to these states.
     pub substates: Option<Vec<SolverState>>,
     pub steps: Vec<&'static SolverStep>,
@@ -222,15 +222,10 @@ impl SolverState {
             s.sort_by_key(|shape| shape.color());
         }
         self.saved_shapes = vec![self.shapes.clone()];
-        self.horizontal_lines = self
+        self.lines = self
             .images
             .iter()
-            .map(|image| tools::find_horizontal_lines_in_image(image))
-            .collect();
-        self.vertical_lines = self
-            .images
-            .iter()
-            .map(|image| tools::find_vertical_lines_in_image(image))
+            .map(|image| Rc::new(tools::find_lines_in_image(image)))
             .collect();
         self.apply(order_colors_by_shapes).unwrap();
     }
@@ -271,17 +266,11 @@ impl SolverState {
         if self.colorsets.len() != self.images.len() {
             return Err("wrong number of colorset lists");
         }
-        if self.horizontal_lines.is_empty() {
-            return Err("no horizontal lines");
+        if self.lines.is_empty() {
+            return Err("no lines");
         }
-        if self.horizontal_lines.len() != self.images.len() {
-            return Err("wrong number of horizontal line lists");
-        }
-        if self.vertical_lines.is_empty() {
-            return Err("no vertical lines");
-        }
-        if self.vertical_lines.len() != self.images.len() {
-            return Err("wrong number of vertical line lists");
+        if self.lines.len() != self.images.len() {
+            return Err("wrong number of line sets");
         }
         if let Some(substates) = &self.substates {
             for substate in substates {
@@ -312,9 +301,7 @@ impl SolverState {
             .collect()
     }
     fn width_and_height(&self, i: usize) -> (i32, i32) {
-        let width = self.images[i][0].len() as i32;
-        let height = self.images[i].len() as i32;
-        (width, height)
+        tools::width_and_height(&self.images[i])
     }
     fn width_and_height_all(&self) -> Res<(i32, i32)> {
         let (w, h) = self.width_and_height(0);
@@ -327,9 +314,7 @@ impl SolverState {
         Ok((w, h))
     }
     fn output_width_and_height(&self, i: usize) -> (i32, i32) {
-        let width = self.output_images[i][0].len() as i32;
-        let height = self.output_images[i].len() as i32;
-        (width, height)
+        tools::width_and_height(&self.output_images[i])
     }
     fn output_width_and_height_all(&self) -> Res<(i32, i32)> {
         let (w, h) = self.output_width_and_height(0);
@@ -379,6 +364,13 @@ impl SolverState {
         }
     }
 
+    #[allow(dead_code)]
+    fn print_steps(&self) {
+        for step in &self.steps {
+            println!("- {}", step);
+        }
+    }
+
     /// An iterator for sub-states that contain only one image and its shapes.
     pub fn state_per_image(&self) -> Vec<SolverState> {
         (0..self.images.len())
@@ -386,6 +378,11 @@ impl SolverState {
                 task: self.task.clone(),
                 images: vec![self.images[i].clone()],
                 output_images: self.output_images.get(i).cloned().into_iter().collect(),
+                saved_images: self
+                    .saved_images
+                    .iter()
+                    .map(|s| vec![s[i].clone()])
+                    .collect(),
                 colors: vec![self.colors[i].clone()],
                 shapes: vec![self.shapes[i].clone()],
                 saved_shapes: self
@@ -396,9 +393,14 @@ impl SolverState {
                 colorsets: vec![self.colorsets[i].clone()],
                 scale_up: self.scale_up,
                 last_move: self.last_move,
-                horizontal_lines: vec![self.horizontal_lines[i].clone()],
-                vertical_lines: vec![self.vertical_lines[i].clone()],
-                ..Default::default()
+                lines: vec![self.lines[i].clone()],
+                saved_lines: self
+                    .saved_lines
+                    .iter()
+                    .map(|s| vec![s[i].clone()])
+                    .collect(),
+                substates: None,
+                steps: vec![],
             })
             .collect()
     }
@@ -415,7 +417,11 @@ impl SolverState {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run_step(step)));
         match result {
             Ok(res) => res,
-            Err(_) => Err(err!("panic")),
+            Err(_) => {
+                tools::print_task(&self.task);
+                self.print_steps();
+                Err(err!("panic"))
+            }
         }
     }
 
@@ -435,9 +441,11 @@ impl SolverState {
             return Ok(());
         }
         match step {
-            SolverStep::Each(f) => self.apply(f)?,
-            SolverStep::All(f) => f(self)?,
-            SolverStep::ForEachShape => self.substates = Some(self.state_per_image()),
+            SolverStep::Each(_name, f) => self.apply(f)?,
+            SolverStep::All(_name, f) => f(self)?,
+            SolverStep::ForEachShape => {
+                self.substates = Some(self.state_per_image());
+            }
         }
         Ok(())
     }
@@ -537,22 +545,15 @@ fn scale_up_image(s: &mut SolverState) -> Res<()> {
 /// vertical_lines.
 fn scale_up_image_add_grid(s: &mut SolverState) -> Res<()> {
     must_have!(&s.output_images);
-    let num_h = s.horizontal_lines[0].len() as i32;
-    let num_v = s.vertical_lines[0].len() as i32;
+    let num_h = s.lines[0].horizontal.len() as i32;
+    let num_v = s.lines[0].vertical.len() as i32;
     if num_h + num_v == 0 {
         return Err(err!("no grid"));
     }
-    if s.horizontal_lines
-        .iter()
-        .any(|lines| lines.len() != num_h as usize)
-    {
-        return Err(err!("horizontal lines have different lengths"));
-    }
-    if s.vertical_lines
-        .iter()
-        .any(|lines| lines.len() != num_v as usize)
-    {
-        return Err(err!("vertical lines have different lengths"));
+    if s.lines.iter().any(|lines| {
+        lines.horizontal.len() != num_h as usize || lines.vertical.len() != num_v as usize
+    }) {
+        return Err(err!("lines have different lengths"));
     }
     // Find ratio from looking at example outputs.
     let (output_width, output_height) = s.output_width_and_height_all()?;
@@ -582,6 +583,9 @@ fn use_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
 fn use_image_without_background_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
     let mut shape = Shape::from_image(&s.images[i]);
     shape.discard_color(0);
+    if shape.cells.is_empty() {
+        return Err(err!("no non-background cells"));
+    }
     s.shapes[i] = vec![shape.into()];
     Ok(())
 }
@@ -936,6 +940,7 @@ fn recolor_saved_shapes_to_current_shape(s: &mut SolverState, i: usize) -> Res<(
 }
 
 fn split_into_two_images(s: &mut SolverState) -> Res<()> {
+    must_have!(&s.output_images);
     let (width, height) = s.width_and_height_all()?;
     let (output_width, output_height) = s.output_width_and_height_all()?;
     if width == output_width * 2 + 1 {
@@ -998,6 +1003,11 @@ fn boolean_with_saved_image_function(
     func: fn(i32, i32) -> i32,
 ) -> Res<()> {
     let saved_image = &s.saved_images.last().ok_or(err!("no saved images"))?[i];
+    let (width, height) = s.width_and_height(i);
+    let (saved_width, saved_height) = tools::width_and_height(&saved_image);
+    if width != saved_width || height != saved_height {
+        return Err(err!("images have different sizes"));
+    }
     let mut new_image: Image = (*s.images[i]).clone();
     for i in 0..new_image.len() {
         for j in 0..new_image[0].len() {
@@ -1137,7 +1147,7 @@ fn repeat_shapes_on_lattice(
 fn remove_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &*s.images[i];
     let mut new_image = vec![];
-    let lines = &s.horizontal_lines[i];
+    let lines = &s.lines[i].horizontal;
     let mut line_i = 0;
     let (_width, height) = s.width_and_height(i);
     for y in 0..height {
@@ -1147,6 +1157,9 @@ fn remove_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
             new_image.push(image[y as usize].clone());
         }
     }
+    if new_image.len() == 0 {
+        return Err(err!("nothing left"));
+    }
     s.images[i] = Rc::new(new_image);
     Ok(())
 }
@@ -1154,7 +1167,7 @@ fn remove_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
 fn remove_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &*s.images[i];
     let mut new_image = vec![];
-    let lines = &s.vertical_lines[i];
+    let lines = &s.lines[i].vertical;
     let (width, height) = s.width_and_height(i);
     for y in 0..height {
         let mut row = vec![];
@@ -1166,6 +1179,9 @@ fn remove_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
                 row.push(image[y as usize][x as usize]);
             }
         }
+        if row.len() == 0 {
+            return Err(err!("nothing left"));
+        }
         new_image.push(row);
     }
     s.images[i] = Rc::new(new_image);
@@ -1173,22 +1189,28 @@ fn remove_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn remove_grid(s: &mut SolverState, i: usize) -> Res<()> {
+    let (width, height) = s.width_and_height(i);
+    if width < 3 && height < 3 {
+        return Err(err!("image too small"));
+    }
+    if s.lines[i].horizontal.is_empty() && s.lines[i].vertical.is_empty() {
+        return Err(err!("no grid"));
+    }
     remove_horizontal_lines(s, i)?;
     remove_vertical_lines(s, i)?;
     // Keep the horizontal and vertical lines so we can restore the grid later.
-    let horizontal_lines = std::mem::take(&mut s.horizontal_lines);
-    let vertical_lines = std::mem::take(&mut s.vertical_lines);
+    let lines = std::mem::take(&mut s.lines);
     let images = std::mem::take(&mut s.images);
     s.init_from_images(images);
-    s.horizontal_lines = horizontal_lines;
-    s.vertical_lines = vertical_lines;
+    s.saved_lines.push(lines);
     Ok(())
 }
 
 fn insert_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &*s.images[i];
     let mut new_image = vec![];
-    let lines = &s.horizontal_lines[i];
+    let lines = &s.saved_lines;
+    let lines = &lines[lines.len() - 1][i].horizontal;
     let mut line_i = 0;
     let (width, height) = s.width_and_height(i);
     for y in 0..height {
@@ -1205,7 +1227,8 @@ fn insert_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
 fn insert_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &*s.images[i];
     let mut new_image = vec![];
-    let lines = &s.vertical_lines[i];
+    let lines = &s.saved_lines;
+    let lines = &lines[lines.len() - 1][i].vertical;
     let (width, height) = s.width_and_height(i);
     for y in 0..height {
         let mut row = vec![];
@@ -1224,8 +1247,10 @@ fn insert_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn restore_grid(s: &mut SolverState, i: usize) -> Res<()> {
+    must_have!(&s.saved_lines);
     insert_horizontal_lines(s, i)?;
     insert_vertical_lines(s, i)?;
+    s.saved_lines.pop();
     Ok(())
 }
 
@@ -1266,13 +1291,18 @@ fn select_grid_cell_least_filled_in(s: &mut SolverState) -> Res<()> {
 
 fn select_grid_cell_max_by(s: &mut SolverState, score_func: fn(&Image) -> i32) -> Res<()> {
     s.apply(|s: &mut SolverState, i: usize| {
-        if s.horizontal_lines[i].len() + s.vertical_lines[i].len() == 0 {
+        let lines = &s.lines[i];
+        let (width, height) = s.width_and_height(i);
+        if (width as usize) < (lines.horizontal.len() * 2 + 1)
+            || (height as usize) < (lines.vertical.len() * 2 + 1)
+        {
+            return Err(err!("image too small"));
+        }
+        if lines.horizontal.len() + lines.vertical.len() == 0 {
             return Err(err!("no grid"));
         }
         let image = &s.images[i];
-        let hlines = &s.horizontal_lines[i];
-        let vlines = &s.vertical_lines[i];
-        let mut grid_cells = tools::grid_cut_image(image, hlines, vlines);
+        let mut grid_cells = tools::grid_cut_image(image, &lines);
         let mut best_index = 0;
         let mut best_score = std::i32::MIN;
         for (index, c) in grid_cells.iter().enumerate() {
@@ -1286,166 +1316,175 @@ fn select_grid_cell_max_by(s: &mut SolverState, score_func: fn(&Image) -> i32) -
         Ok(())
     })?;
     // Keep the horizontal and vertical lines so we can restore the grid later.
-    let horizontal_lines = std::mem::take(&mut s.horizontal_lines);
-    let vertical_lines = std::mem::take(&mut s.vertical_lines);
+    let lines = std::mem::take(&mut s.lines);
     let images = std::mem::take(&mut s.images);
     s.init_from_images(images);
-    s.horizontal_lines = horizontal_lines;
-    s.vertical_lines = vertical_lines;
+    s.saved_lines.push(lines);
     Ok(())
 }
+
 pub enum SolverStep {
-    Each(fn(&mut SolverState, usize) -> Res<()>),
-    All(fn(&mut SolverState) -> Res<()>),
+    Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
+    All(&'static str, fn(&mut SolverState) -> Res<()>),
     ForEachShape,
+}
+macro_rules! step_all {
+    ($func:ident) => {
+        All(stringify!($func), $func)
+    };
+}
+macro_rules! step_each {
+    ($func:ident) => {
+        Each(stringify!($func), $func)
+    };
 }
 use SolverStep::*;
 impl std::fmt::Display for SolverStep {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Each(func) => write!(f, "{:?}", func),
-            All(func) => write!(f, "{:?}", func),
+            Each(name, _func) => write!(f, "{}", name),
+            All(name, _func) => write!(f, "{}", name),
             ForEachShape => write!(f, "ForEachShape"),
         }
     }
 }
 pub const ALL_STEPS: &[SolverStep] = &[
-    All(grow_flowers),
-    All(load_shapes_except_current_shapes),
-    All(move_shapes_per_output),
-    All(recolor_image_per_output),
-    All(recolor_shapes_per_output),
-    All(repeat_shapes_on_lattice_per_output),
-    All(save_first_shape_use_the_rest),
-    All(save_shapes_and_load_previous),
-    All(scale_up_image_add_grid),
-    All(scale_up_image),
-    All(select_grid_cell_least_filled_in),
-    All(select_grid_cell_most_filled_in),
-    All(split_into_two_images),
-    All(use_colorsets_as_shapes),
-    All(use_output_size),
-    Each(allow_diagonals_in_shapes),
-    Each(boolean_with_saved_image_and),
-    Each(boolean_with_saved_image_or),
-    Each(boolean_with_saved_image_xor),
-    Each(connect_aligned_pixels_in_shapes),
-    Each(delete_background_shapes),
-    Each(draw_shape_where_non_empty),
-    Each(draw_shapes),
-    Each(filter_shapes_by_color),
-    Each(find_repeating_pattern),
-    Each(move_saved_shape_to_cover_current_shape_max),
-    Each(move_shapes_to_touch_saved_shape),
-    Each(order_colors_by_shapes),
-    Each(order_shapes_by_size_decreasing),
-    Each(order_shapes_by_size_increasing),
-    Each(pick_bottom_right_shape_per_color),
-    Each(recolor_saved_shapes_to_current_shape),
-    Each(remove_grid),
-    Each(repeat_last_move_and_draw),
-    Each(restore_grid),
-    Each(tile_shapes_after_scale_up),
-    Each(use_image_as_shape),
-    Each(use_image_without_background_as_shape),
-    Each(use_next_color),
-    Each(use_previous_color),
+    // step_all!(grow_flowers),
+    step_all!(load_shapes_except_current_shapes),
+    step_all!(move_shapes_per_output),
+    step_all!(recolor_image_per_output),
+    step_all!(recolor_shapes_per_output),
+    step_all!(repeat_shapes_on_lattice_per_output),
+    step_all!(save_first_shape_use_the_rest),
+    step_all!(save_shapes_and_load_previous),
+    step_all!(scale_up_image_add_grid),
+    step_all!(scale_up_image),
+    step_all!(select_grid_cell_least_filled_in),
+    step_all!(select_grid_cell_most_filled_in),
+    step_all!(split_into_two_images),
+    step_all!(use_colorsets_as_shapes),
+    step_all!(use_output_size),
+    step_each!(allow_diagonals_in_shapes),
+    step_each!(boolean_with_saved_image_and),
+    step_each!(boolean_with_saved_image_or),
+    step_each!(boolean_with_saved_image_xor),
+    step_each!(connect_aligned_pixels_in_shapes),
+    step_each!(delete_background_shapes),
+    step_each!(draw_shape_where_non_empty),
+    step_each!(draw_shapes),
+    step_each!(filter_shapes_by_color),
+    step_each!(find_repeating_pattern),
+    step_each!(move_saved_shape_to_cover_current_shape_max),
+    step_each!(move_shapes_to_touch_saved_shape),
+    step_each!(order_colors_by_shapes),
+    step_each!(order_shapes_by_size_decreasing),
+    step_each!(order_shapes_by_size_increasing),
+    step_each!(pick_bottom_right_shape_per_color),
+    step_each!(recolor_saved_shapes_to_current_shape),
+    step_each!(remove_grid),
+    step_each!(repeat_last_move_and_draw),
+    step_each!(restore_grid),
+    step_each!(tile_shapes_after_scale_up),
+    step_each!(use_image_as_shape),
+    step_each!(use_image_without_background_as_shape),
+    step_each!(use_next_color),
+    step_each!(use_previous_color),
     ForEachShape,
 ];
 pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // 0
-        Each(use_image_as_shape),
-        All(scale_up_image),
-        Each(tile_shapes_after_scale_up),
-        Each(draw_shape_where_non_empty),
+        step_each!(use_image_as_shape),
+        step_all!(scale_up_image),
+        step_each!(tile_shapes_after_scale_up),
+        step_each!(draw_shape_where_non_empty),
     ],
     &[
         // 1
-        Each(filter_shapes_by_color),
-        All(recolor_shapes_per_output),
-        Each(draw_shapes),
+        step_each!(filter_shapes_by_color),
+        step_all!(recolor_shapes_per_output),
+        step_each!(draw_shapes),
     ],
     &[
         // 2
-        All(use_output_size),
-        All(use_colorsets_as_shapes),
-        Each(find_repeating_pattern),
-        All(recolor_shapes_per_output),
-        Each(draw_shapes),
+        step_all!(use_output_size),
+        step_all!(use_colorsets_as_shapes),
+        step_each!(find_repeating_pattern),
+        step_all!(recolor_shapes_per_output),
+        step_each!(draw_shapes),
     ],
     &[
         // 3
-        Each(pick_bottom_right_shape_per_color),
-        All(load_shapes_except_current_shapes),
-        All(move_shapes_per_output),
+        step_each!(pick_bottom_right_shape_per_color),
+        step_all!(load_shapes_except_current_shapes),
+        step_all!(move_shapes_per_output),
     ],
     &[
         // 4
-        Each(allow_diagonals_in_shapes),
-        Each(delete_background_shapes),
-        Each(order_shapes_by_size_decreasing),
-        All(save_first_shape_use_the_rest),
+        step_each!(allow_diagonals_in_shapes),
+        step_each!(delete_background_shapes),
+        step_each!(order_shapes_by_size_decreasing),
+        step_all!(save_first_shape_use_the_rest),
         ForEachShape,
-        Each(recolor_saved_shapes_to_current_shape),
-        Each(move_saved_shape_to_cover_current_shape_max),
-        Each(repeat_last_move_and_draw),
+        step_each!(recolor_saved_shapes_to_current_shape),
+        step_each!(move_saved_shape_to_cover_current_shape_max),
+        step_each!(repeat_last_move_and_draw),
     ],
     &[
         // 5
-        All(split_into_two_images),
-        Each(boolean_with_saved_image_and),
-        All(recolor_image_per_output),
+        step_all!(split_into_two_images),
+        step_each!(boolean_with_saved_image_and),
+        step_all!(recolor_image_per_output),
     ],
     &[
         // 6
-        Each(use_image_without_background_as_shape),
-        All(repeat_shapes_on_lattice_per_output),
+        step_each!(use_image_without_background_as_shape),
+        step_all!(repeat_shapes_on_lattice_per_output),
     ],
     &[
         // 7
-        Each(use_next_color),
-        Each(filter_shapes_by_color),
-        All(save_shapes_and_load_previous),
-        Each(use_previous_color),
-        Each(filter_shapes_by_color),
-        Each(move_shapes_to_touch_saved_shape),
+        step_each!(use_next_color),
+        step_each!(filter_shapes_by_color),
+        step_all!(save_shapes_and_load_previous),
+        step_each!(use_previous_color),
+        step_each!(filter_shapes_by_color),
+        step_each!(move_shapes_to_touch_saved_shape),
     ],
     &[
         // 8
-        Each(remove_grid),
-        All(use_colorsets_as_shapes),
-        Each(connect_aligned_pixels_in_shapes),
-        Each(restore_grid),
+        step_each!(remove_grid),
+        step_all!(use_colorsets_as_shapes),
+        step_each!(connect_aligned_pixels_in_shapes),
+        step_each!(restore_grid),
     ],
     &[
         // 9
-        Each(order_shapes_by_size_increasing),
-        All(recolor_shapes_per_output),
-        Each(draw_shapes),
+        step_each!(order_shapes_by_size_increasing),
+        step_all!(recolor_shapes_per_output),
+        step_each!(draw_shapes),
     ],
     &[
         // 10
-        All(select_grid_cell_least_filled_in),
-        All(scale_up_image_add_grid),
+        step_all!(select_grid_cell_least_filled_in),
+        step_all!(scale_up_image_add_grid),
     ],
     &[
         // 11
-        All(use_colorsets_as_shapes),
-        Each(order_shapes_by_size_increasing),
-        Each(order_colors_by_shapes),
-        All(grow_flowers),
+        step_all!(use_colorsets_as_shapes),
+        step_each!(order_shapes_by_size_increasing),
+        step_each!(order_colors_by_shapes),
+        step_all!(grow_flowers),
     ],
     &[
         // 71
-        All(split_into_two_images),
-        Each(boolean_with_saved_image_xor),
-        All(recolor_image_per_output),
+        step_all!(split_into_two_images),
+        step_each!(boolean_with_saved_image_xor),
+        step_all!(recolor_image_per_output),
     ],
     &[
         // ???
-        All(split_into_two_images),
-        Each(boolean_with_saved_image_or),
-        All(recolor_image_per_output),
+        step_all!(split_into_two_images),
+        step_each!(boolean_with_saved_image_or),
+        step_all!(recolor_image_per_output),
     ],
 ];

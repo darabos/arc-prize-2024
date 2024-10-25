@@ -34,12 +34,16 @@ pub fn parse_example(example: &serde_json::Value) -> Example {
     Example { input, output }
 }
 
-pub fn parse_task(task: &serde_json::Value) -> Task {
+pub fn parse_task(id: &str, task: &serde_json::Value) -> Task {
     let train = task["train"].as_array().expect("Should have been an array");
     let train = train.iter().map(|example| parse_example(example)).collect();
     let test = task["test"].as_array().expect("Should have been an array");
     let test = test.iter().map(|example| parse_example(example)).collect();
-    Task { train, test }
+    Task {
+        id: id.into(),
+        train,
+        test,
+    }
 }
 
 pub fn read_arc_file(file_path: &str) -> Vec<(String, Task)> {
@@ -49,7 +53,7 @@ pub fn read_arc_file(file_path: &str) -> Vec<(String, Task)> {
     let data = data.as_object().expect("Should have been an object");
     let mut tasks = Vec::new();
     for (key, task) in data {
-        tasks.push((key.clone(), parse_task(task)));
+        tasks.push((key.clone(), parse_task(key, task)));
     }
     tasks
 }
@@ -102,7 +106,7 @@ fn evaluate_automatic_solver() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // let debug = "06df4c85";
+    // let debug = "25d8a9c8";
     let debug = "";
     let tasks: Vec<(String, Task)> = if debug == "" {
         tasks //.into_iter().skip(30).collect()
@@ -219,6 +223,6 @@ fn evaluate_manual_solvers() {
 }
 
 fn main() {
-    // evaluate_automatic_solver();
-    evaluate_manual_solvers();
+    evaluate_automatic_solver();
+    // evaluate_manual_solvers();
 }

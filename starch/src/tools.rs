@@ -34,6 +34,7 @@ pub const COLORS: [colored::Color; 12] = [
 pub type Image = Vec<Vec<Color>>;
 #[derive(Clone, Default)]
 pub struct Task {
+    pub id: String,
     pub train: Vec<Example>,
     pub test: Vec<Example>,
 }
@@ -73,6 +74,11 @@ pub struct Line {
     pub color: i32,
 }
 pub type Lines = Vec<Line>;
+#[derive(Debug)]
+pub struct LineSet {
+    pub horizontal: Lines,
+    pub vertical: Lines,
+}
 
 pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
 pub const DOWN: Vec2 = Vec2 { x: 0, y: 1 };
@@ -119,11 +125,11 @@ pub fn print_example(example: &Example) {
 
 #[allow(dead_code)]
 pub fn print_task(task: &Task) {
-    println!("Train:");
+    println!("Train of {}:", task.id);
     for example in &task.train {
         print_example(example);
     }
-    println!("Test:");
+    println!("Test of {}:", task.id);
     for example in &task.test {
         print_example(example);
     }
@@ -268,6 +274,12 @@ pub fn find_vertical_lines_in_image(image: &Image) -> Lines {
         last_line = x as i32;
     }
     lines
+}
+pub fn find_lines_in_image(image: &Image) -> LineSet {
+    LineSet {
+        horizontal: find_horizontal_lines_in_image(image),
+        vertical: find_vertical_lines_in_image(image),
+    }
 }
 
 pub fn shape_by_color(shapes: &[Rc<Shape>], color: i32) -> Option<Rc<Shape>> {
@@ -901,7 +913,7 @@ pub fn scale_up_image(image: &Image, ratio: Vec2) -> Image {
             let color = image[y][x];
             for dy in 0..ry {
                 for dx in 0..rx {
-                    new_image[y * rx + dy][x * ry + dx] = color;
+                    new_image[y * ry + dy][x * rx + dx] = color;
                 }
             }
         }
@@ -927,36 +939,32 @@ pub fn compare_images(a: &Image, b: &Image) -> bool {
 }
 
 /// Given a grid of lines, returns the images that are separated by the lines.
-pub fn grid_cut_image(
-    image: &Image,
-    horizontal_lines: &Lines,
-    vertical_lines: &Lines,
-) -> Vec<Image> {
+pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
     let mut images = vec![];
-    for y in 0..=horizontal_lines.len() {
+    for y in 0..=lines.horizontal.len() {
         let start_y = if y == 0 {
             0
         } else {
-            horizontal_lines[y - 1].pos + 1
+            lines.horizontal[y - 1].pos + 1
         };
-        let end_y = if y == horizontal_lines.len() {
+        let end_y = if y == lines.horizontal.len() {
             image.len() as i32
         } else {
-            horizontal_lines[y].pos
+            lines.horizontal[y].pos
         };
         if end_y <= start_y {
             continue;
         }
-        for x in 0..=vertical_lines.len() {
+        for x in 0..=lines.vertical.len() {
             let start_x = if x == 0 {
                 0
             } else {
-                vertical_lines[x - 1].pos + 1
+                lines.vertical[x - 1].pos + 1
             };
-            let end_x = if x == vertical_lines.len() {
+            let end_x = if x == lines.vertical.len() {
                 image[0].len() as i32
             } else {
-                vertical_lines[x].pos
+                lines.vertical[x].pos
             };
             if end_x <= start_x {
                 continue;
@@ -971,4 +979,13 @@ pub fn grid_cut_image(
 /// Returns the number of non-zero pixels in the image.
 pub fn count_non_zero_pixels(image: &Image) -> usize {
     image.iter().flatten().filter(|&&cell| cell != 0).count()
+}
+
+pub fn width_and_height(image: &Image) -> (i32, i32) {
+    let height = image.len() as i32;
+    if height == 0 {
+        return (0, 0);
+    }
+    let width = image[0].len() as i32;
+    (width, height)
 }
