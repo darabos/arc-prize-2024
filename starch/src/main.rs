@@ -76,6 +76,15 @@ pub fn read_arc_solutions_file(file_path: &str) -> Map<String, Vec<Image>> {
     tasks
 }
 
+fn set_bar_style(bar: &ProgressBar) {
+    bar.set_style(
+        indicatif::ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
+        )
+        .expect("no template error"),
+    );
+}
+
 fn automatic_solver(task: &Task) -> tools::Res<Vec<Example>> {
     let mut queue = std::collections::VecDeque::new();
     queue.push_back(solvers::SolverState::new(task));
@@ -106,7 +115,7 @@ fn evaluate_automatic_solver() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // let debug = "25d8a9c8";
+    // let debug = "09629e4f";
     let debug = "";
     let tasks: Vec<(String, Task)> = if debug == "" {
         tasks //.into_iter().skip(30).collect()
@@ -114,6 +123,7 @@ fn evaluate_automatic_solver() {
         tasks.into_iter().filter(|(k, _)| *k == debug).collect()
     };
     let bar = ProgressBar::new(tasks.len() as u64);
+    set_bar_style(&bar);
     for (name, task) in &tasks {
         bar.inc(1);
         // println!("Task: {}", name);
@@ -140,9 +150,9 @@ fn evaluate_automatic_solver() {
                 if debug != "" {
                     tools::print_image(image);
                 }
-                println!("{}: {}", name, "Correct".green());
             }
             if all_correct {
+                println!("{}: {}", name, "Correct".green());
                 correct += 1;
             }
         }
@@ -164,12 +174,7 @@ fn evaluate_manual_solvers() {
         tasks.into_iter().filter(|(k, _)| *k == debug.1).collect()
     };
     let bar = ProgressBar::new(tasks.len() as u64);
-    bar.set_style(
-        indicatif::ProgressStyle::with_template(
-            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
-        )
-        .expect("no template error"),
-    );
+    set_bar_style(&bar);
     for (name, task) in &tasks {
         bar.inc(1);
         // println!("Task: {}", name);

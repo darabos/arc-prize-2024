@@ -9,7 +9,7 @@ macro_rules! err {
 }
 
 /// Returns an error if the given Vec is empty.
-macro_rules! must_have {
+macro_rules! must_not_be_empty {
     ($e:expr) => {
         if $e.is_empty() {
             return Err(err!("empty"));
@@ -64,7 +64,7 @@ fn get_firsts<T>(vec: &Vec<Vec<T>>) -> Res<Vec<&T>> {
 }
 
 fn grow_flowers(s: &mut SolverState) -> Res<()> {
-    must_have!(&s.output_images);
+    must_not_be_empty!(&s.output_images);
     let dots = get_firsts(&s.shapes)?;
     // let input_pattern = find_pattern_around(&s.images[..s.task.train.len()], &dots);
     let mut output_pattern = tools::find_pattern_around(&s.output_images, &dots);
@@ -526,7 +526,7 @@ fn move_shapes_to_touch_saved_shape(s: &mut SolverState, i: usize) -> Res<()> {
 
 /// Scales up the image to match the output image.
 fn scale_up_image(s: &mut SolverState) -> Res<()> {
-    must_have!(&s.output_images);
+    must_not_be_empty!(&s.output_images);
     // Find ratio from looking at example outputs.
     let output_size = s.output_images[0].len() as i32;
     let input_size = s.images[0].len() as i32;
@@ -544,13 +544,16 @@ fn scale_up_image(s: &mut SolverState) -> Res<()> {
 /// Scales up the image to match the output image after adding a grid stored in horizontal_lines and
 /// vertical_lines.
 fn scale_up_image_add_grid(s: &mut SolverState) -> Res<()> {
-    must_have!(&s.output_images);
-    let num_h = s.lines[0].horizontal.len() as i32;
-    let num_v = s.lines[0].vertical.len() as i32;
+    must_not_be_empty!(&s.output_images);
+    let lines = &s.saved_lines;
+    must_not_be_empty!(lines);
+    let lines = &lines[lines.len() - 1];
+    let num_h = lines[0].horizontal.len() as i32;
+    let num_v = lines[0].vertical.len() as i32;
     if num_h + num_v == 0 {
         return Err(err!("no grid"));
     }
-    if s.lines.iter().any(|lines| {
+    if lines.iter().any(|lines| {
         lines.horizontal.len() != num_h as usize || lines.vertical.len() != num_v as usize
     }) {
         return Err(err!("lines have different lengths"));
@@ -572,7 +575,7 @@ fn scale_up_image_add_grid(s: &mut SolverState) -> Res<()> {
         s.images[i] = Rc::new(tools::scale_up_image(&s.images[i], s.scale_up));
         Ok(())
     })?;
-    s.apply(restore_grid)
+    restore_grid(s)
 }
 
 fn use_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
@@ -627,7 +630,7 @@ fn delete_shapes_touching_border(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
-    must_have!(&s.output_images);
+    must_not_be_empty!(&s.output_images);
     // Get colors from first output_image.
     let shapes = &s.shapes[0];
     let colors: Res<Vec<i32>> = shapes
@@ -740,7 +743,7 @@ fn find_repeating_pattern(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn use_output_size(s: &mut SolverState) -> Res<()> {
-    must_have!(&s.output_images);
+    must_not_be_empty!(&s.output_images);
     let (current_width, current_height) = s.width_and_height(0);
     let (output_width, output_height) = s.output_width_and_height(0);
     if current_width == output_width && current_height == output_height {
@@ -861,11 +864,11 @@ fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
         for direction in tools::DIRECTIONS8 {
             let mut correct = true;
             let offset = distance * direction;
-            for i in 0..outputs.len() {
+            'images: for i in 0..outputs.len() {
                 for shape in &shapes[i] {
                     if !shape.matches_image_when_moved_by(&outputs[i], offset) {
                         correct = false;
-                        break;
+                        break 'images;
                     }
                 }
             }
@@ -940,7 +943,7 @@ fn recolor_saved_shapes_to_current_shape(s: &mut SolverState, i: usize) -> Res<(
 }
 
 fn split_into_two_images(s: &mut SolverState) -> Res<()> {
-    must_have!(&s.output_images);
+    must_not_be_empty!(&s.output_images);
     let (width, height) = s.width_and_height_all()?;
     let (output_width, output_height) = s.output_width_and_height_all()?;
     if width == output_width * 2 + 1 {
@@ -1246,10 +1249,13 @@ fn insert_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
-fn restore_grid(s: &mut SolverState, i: usize) -> Res<()> {
-    must_have!(&s.saved_lines);
-    insert_horizontal_lines(s, i)?;
-    insert_vertical_lines(s, i)?;
+fn restore_grid(s: &mut SolverState) -> Res<()> {
+    must_not_be_empty!(&s.saved_lines);
+    s.apply(|s: &mut SolverState, i: usize| {
+        insert_horizontal_lines(s, i)?;
+        insert_vertical_lines(s, i)?;
+        Ok(())
+    })?;
     s.saved_lines.pop();
     Ok(())
 }
@@ -1383,7 +1389,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(recolor_saved_shapes_to_current_shape),
     step_each!(remove_grid),
     step_each!(repeat_last_move_and_draw),
-    step_each!(restore_grid),
+    step_all!(restore_grid),
     step_each!(tile_shapes_after_scale_up),
     step_each!(use_image_as_shape),
     step_each!(use_image_without_background_as_shape),
@@ -1417,6 +1423,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         // 3
         step_each!(pick_bottom_right_shape_per_color),
         step_all!(load_shapes_except_current_shapes),
+        step_each!(delete_background_shapes),
         step_all!(move_shapes_per_output),
     ],
     &[
@@ -1455,7 +1462,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(remove_grid),
         step_all!(use_colorsets_as_shapes),
         step_each!(connect_aligned_pixels_in_shapes),
-        step_each!(restore_grid),
+        step_all!(restore_grid),
     ],
     &[
         // 9
