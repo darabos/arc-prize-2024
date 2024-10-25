@@ -166,10 +166,10 @@ fn evaluate_manual_solvers() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // let debug = (10, "09629e4f");
+    // let debug = (4, "045e512c");
     let debug = (-1, "");
-    let tasks = if debug.0 < 0 {
-        tasks
+    let tasks: Vec<(String, Task)> = if debug.0 < 0 {
+        tasks //.into_iter().take(11).collect()
     } else {
         tasks.into_iter().filter(|(k, _)| *k == debug.1).collect()
     };
@@ -228,6 +228,6 @@ fn evaluate_manual_solvers() {
 }
 
 fn main() {
-    evaluate_automatic_solver();
-    // evaluate_manual_solvers();
+    // evaluate_automatic_solver();
+    evaluate_manual_solvers();
 }

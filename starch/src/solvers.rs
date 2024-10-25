@@ -164,6 +164,14 @@ type ColorList = Vec<i32>;
 type ColorListPerExample = Vec<ColorList>;
 type LinesPerExample = Vec<Rc<tools::LineSet>>;
 
+/// A sub-state that contains only one image and its shapes.
+/// It uses the image from the parent state and applies operations on it.
+#[derive(Default, Clone)]
+pub struct SubState {
+    state: SolverState,
+    image_index: usize,
+}
+
 /// Tracks information while applying operations on all examples at once.
 /// Most fields are vectors storing information for each example.
 #[derive(Default, Clone)]
@@ -182,7 +190,7 @@ pub struct SolverState {
     pub lines: LinesPerExample,
     pub saved_lines: Vec<LinesPerExample>,
     // If this is set, we will apply steps to these states.
-    pub substates: Option<Vec<SolverState>>,
+    pub substates: Option<Vec<SubState>>,
     pub steps: Vec<&'static SolverStep>,
 }
 
@@ -274,7 +282,7 @@ impl SolverState {
         }
         if let Some(substates) = &self.substates {
             for substate in substates {
-                substate.validate()?;
+                substate.state.validate()?;
             }
         }
         Ok(())
@@ -372,35 +380,38 @@ impl SolverState {
     }
 
     /// An iterator for sub-states that contain only one image and its shapes.
-    pub fn state_per_image(&self) -> Vec<SolverState> {
+    pub fn substate_per_image(&self) -> Vec<SubState> {
         (0..self.images.len())
-            .map(|i| SolverState {
-                task: self.task.clone(),
-                images: vec![self.images[i].clone()],
-                output_images: self.output_images.get(i).cloned().into_iter().collect(),
-                saved_images: self
-                    .saved_images
-                    .iter()
-                    .map(|s| vec![s[i].clone()])
-                    .collect(),
-                colors: vec![self.colors[i].clone()],
-                shapes: vec![self.shapes[i].clone()],
-                saved_shapes: self
-                    .saved_shapes
-                    .iter()
-                    .map(|s| vec![s[i].clone()])
-                    .collect(),
-                colorsets: vec![self.colorsets[i].clone()],
-                scale_up: self.scale_up,
-                last_move: self.last_move,
-                lines: vec![self.lines[i].clone()],
-                saved_lines: self
-                    .saved_lines
-                    .iter()
-                    .map(|s| vec![s[i].clone()])
-                    .collect(),
-                substates: None,
-                steps: vec![],
+            .map(|i| SubState {
+                image_index: i,
+                state: SolverState {
+                    task: self.task.clone(),
+                    images: vec![self.images[i].clone()],
+                    output_images: self.output_images.get(i).cloned().into_iter().collect(),
+                    saved_images: self
+                        .saved_images
+                        .iter()
+                        .map(|s| vec![s[i].clone()])
+                        .collect(),
+                    colors: vec![self.colors[i].clone()],
+                    shapes: vec![self.shapes[i].clone()],
+                    saved_shapes: self
+                        .saved_shapes
+                        .iter()
+                        .map(|s| vec![s[i].clone()])
+                        .collect(),
+                    colorsets: vec![self.colorsets[i].clone()],
+                    scale_up: self.scale_up,
+                    last_move: self.last_move,
+                    lines: vec![self.lines[i].clone()],
+                    saved_lines: self
+                        .saved_lines
+                        .iter()
+                        .map(|s| vec![s[i].clone()])
+                        .collect(),
+                    substates: None,
+                    steps: vec![],
+                },
             })
             .collect()
     }
@@ -428,23 +439,32 @@ impl SolverState {
     pub fn run_step(&mut self, step: &'static SolverStep) -> Res<()> {
         self.steps.push(step);
         if let Some(substates) = &mut self.substates {
-            let mut new_images = vec![];
-            for state in substates {
-                let shapes = std::mem::take(&mut state.shapes[0]);
-                for shape in shapes {
-                    state.shapes = vec![vec![shape.clone()]];
-                    state.run_step(&step)?;
-                }
-                new_images.push(state.images[0].clone());
+            for substate in substates {
+                let state = &mut substate.state;
+                state.images = vec![self.images[substate.image_index].clone()];
+                state.run_step(&step)?;
+                self.images[substate.image_index] = state.images[0].clone();
             }
-            self.images = new_images;
             return Ok(());
         }
         match step {
             SolverStep::Each(_name, f) => self.apply(f)?,
             SolverStep::All(_name, f) => f(self)?,
             SolverStep::ForEachShape => {
-                self.substates = Some(self.state_per_image());
+                self.substates = Some(
+                    self.substate_per_image()
+                        .into_iter()
+                        .map(|mut s| {
+                            let shapes = std::mem::take(&mut s.state.shapes[0]);
+                            shapes.into_iter().map(move |shape| {
+                                let mut state = s.state.clone();
+                                state.shapes = vec![vec![shape.clone()]];
+                                SubState { state, ..s }
+                            })
+                        })
+                        .flatten()
+                        .collect(),
+                )
             }
         }
         Ok(())
