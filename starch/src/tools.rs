@@ -73,6 +73,7 @@ pub struct Shape {
 pub struct Line {
     pub pos: i32,
     pub color: i32,
+    pub width: usize,
 }
 pub type Lines = Vec<Line>;
 #[derive(Debug)]
@@ -227,52 +228,42 @@ pub fn find_colorsets_in_image(image: &Image) -> Vec<Rc<Shape>> {
 }
 
 pub fn find_horizontal_lines_in_image(image: &Image) -> Lines {
-    let mut lines = vec![];
-    let mut last_line = -10;
+    let mut lines: Lines = vec![];
     'outer: for y in 0..image.len() {
         let color = image[y][0];
-        if color == 0 {
-            continue;
-        }
-        for x in 0..image[0].len() {
+        for x in 0..image[y].len() {
             if image[y][x] != color {
                 continue 'outer;
             }
         }
-        if y as i32 == last_line + 1 {
-            lines.pop();
-        } else {
-            lines.push(Line {
+        match lines.last_mut() {
+            Some(last_line) if last_line.color == color => last_line.width += 1,
+            _ => lines.push(Line {
                 pos: y as i32,
+                width: 1,
                 color,
-            });
+            }),
         }
-        last_line = y as i32;
     }
     lines
 }
 pub fn find_vertical_lines_in_image(image: &Image) -> Lines {
-    let mut lines = vec![];
-    let mut last_line = -10;
+    let mut lines: Lines = vec![];
     'outer: for x in 0..image[0].len() {
         let color = image[0][x];
-        if color == 0 {
-            continue;
-        }
         for y in 0..image.len() {
             if image[y][x] != color {
                 continue 'outer;
             }
         }
-        if x as i32 == last_line + 1 {
-            lines.pop();
-        } else {
-            lines.push(Line {
+        match lines.last_mut() {
+            Some(last_line) if last_line.color == color => last_line.width += 1,
+            _ => lines.push(Line {
                 pos: x as i32,
+                width: 1,
                 color,
-            });
+            }),
         }
-        last_line = x as i32;
     }
     lines
 }
@@ -887,14 +878,18 @@ pub fn draw_shape_with_relative_colors_at(
     }
 }
 
+pub fn set_used_colors_in_image(image: &Image, is_used: &mut Vec<bool>) {
+    for row in image.iter() {
+        for cell in row {
+            is_used[*cell as usize] = true;
+        }
+    }
+}
+
 pub fn get_used_colors(images: &[Rc<Image>]) -> Vec<i32> {
     let mut is_used = vec![false; COLORS.len()];
     for image in images {
-        for row in image.iter() {
-            for cell in row {
-                is_used[*cell as usize] = true;
-            }
-        }
+        set_used_colors_in_image(image, &mut is_used);
     }
     let mut used_colors = vec![];
     for (i, &used) in is_used.iter().enumerate() {
@@ -947,7 +942,7 @@ pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
         let start_y = if y == 0 {
             0
         } else {
-            lines.horizontal[y - 1].pos + 1
+            lines.horizontal[y - 1].pos + lines.horizontal[y - 1].width as i32
         };
         let end_y = if y == lines.horizontal.len() {
             image.len() as i32
@@ -961,7 +956,7 @@ pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
             let start_x = if x == 0 {
                 0
             } else {
-                lines.vertical[x - 1].pos + 1
+                lines.vertical[x - 1].pos + lines.vertical[x - 1].width as i32
             };
             let end_x = if x == lines.vertical.len() {
                 image[0].len() as i32

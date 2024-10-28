@@ -1424,20 +1424,16 @@ fn select_grid_cell_least_filled_in(s: &mut SolverState) -> Res<()> {
     select_grid_cell_max_by(s, |image| -(tools::count_non_zero_pixels(image) as i32))
 }
 
-fn select_grid_cell_max_by(s: &mut SolverState, score_func: fn(&Image) -> i32) -> Res<()> {
-    s.apply(|s: &mut SolverState, i: usize| {
-        let lines = &s.lines[i];
-        let (width, height) = s.width_and_height(i);
-        if (width as usize) < (lines.horizontal.len() * 2 + 1)
-            || (height as usize) < (lines.vertical.len() * 2 + 1)
-        {
-            return Err(err!("image too small"));
-        }
-        if lines.horizontal.len() + lines.vertical.len() == 0 {
-            return Err(err!("no grid"));
-        }
-        let image = &s.images[i];
-        let mut grid_cells = tools::grid_cut_image(image, &lines);
+/// Adds up the width of all lines.
+fn total_width(lines: &tools::Lines) -> usize {
+    lines.iter().map(|l| l.width).sum()
+}
+
+fn select_grid_cell_max_by<F>(s: &mut SolverState, score_func: F) -> Res<()>
+where
+    F: Fn(&Image) -> i32,
+{
+    select_grid_cell(s, |grid_cells: &[Image]| {
         let mut best_index = 0;
         let mut best_score = std::i32::MIN;
         for (index, c) in grid_cells.iter().enumerate() {
@@ -1447,7 +1443,51 @@ fn select_grid_cell_max_by(s: &mut SolverState, score_func: fn(&Image) -> i32) -
                 best_index = index;
             }
         }
-        s.images[i] = grid_cells.swap_remove(best_index).into();
+        Ok(best_index)
+    })
+}
+
+fn select_grid_cell_outlier_by_color(s: &mut SolverState) -> Res<()> {
+    select_grid_cell(s, |grid_cells: &[Image]| {
+        let mut users = vec![vec![]; COLORS.len()];
+        for (index, c) in grid_cells.iter().enumerate() {
+            let mut is_used = vec![false; COLORS.len()];
+            tools::set_used_colors_in_image(c, &mut is_used);
+            for (color, &used) in is_used.iter().enumerate() {
+                if used {
+                    users[color].push(index);
+                }
+            }
+        }
+        for users in users {
+            if users.len() == 1 {
+                return Ok(users[0]);
+            }
+        }
+        Err(err!("no outlier found"))
+    })
+}
+
+fn select_grid_cell<F>(s: &mut SolverState, select_func: F) -> Res<()>
+where
+    F: Fn(&[Image]) -> Res<usize>,
+{
+    s.apply(|s: &mut SolverState, i: usize| {
+        let lines = &s.lines[i];
+        if lines.horizontal.len() + lines.vertical.len() == 0 {
+            return Err(err!("no grid"));
+        }
+        let (width, height) = s.width_and_height(i);
+        if (width as usize) < (total_width(&lines.horizontal) + lines.horizontal.len() + 1)
+            || (height as usize) < (total_width(&lines.vertical) + lines.vertical.len() + 1)
+        {
+            return Err(err!("image too small"));
+        }
+        let image = &s.images[i];
+        let mut grid_cells = tools::grid_cut_image(image, &lines);
+        assert!(!grid_cells.is_empty());
+        let selected = select_func(&grid_cells)?;
+        s.images[i] = grid_cells.swap_remove(selected).into();
         Ok(())
     })?;
     // Keep the horizontal and vertical lines so we can restore the grid later.
@@ -1635,6 +1675,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(scale_up_image),
     step_all!(select_grid_cell_least_filled_in),
     step_all!(select_grid_cell_most_filled_in),
+    step_all!(select_grid_cell_outlier_by_color),
     step_all!(solve_number_sequence),
     step_all!(split_into_two_images),
     step_all!(use_colorsets_as_shapes),
@@ -1769,6 +1810,10 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(solve_number_sequence),
         step_each!(number_sequence_to_shapes),
         step_each!(draw_shapes),
+    ],
+    &[
+        // 13
+        step_all!(select_grid_cell_outlier_by_color),
     ],
     &[
         // 71
