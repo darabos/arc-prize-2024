@@ -642,6 +642,7 @@ impl Shape {
         }
     }
 
+    /// Requires exact match.
     #[must_use]
     pub fn find_matching_shape_index(&self, shapes: &[Rc<Shape>]) -> Option<usize> {
         for (i, shape) in shapes.iter().enumerate() {
@@ -1000,8 +1001,30 @@ pub fn width_and_height(image: &Image) -> (i32, i32) {
     (width, height)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Rotation {
+    CW,
+    CCW,
+}
+
+impl Rotation {
+    pub fn opposite(&self) -> Rotation {
+        match self {
+            Rotation::CW => Rotation::CCW,
+            Rotation::CCW => Rotation::CW,
+        }
+    }
+}
+
+pub fn rotate_image(image: &Image, direction: Rotation) -> Image {
+    match direction {
+        Rotation::CW => rotate_image_cw(image),
+        Rotation::CCW => rotate_image_ccw(image),
+    }
+}
+
 /// Rotates the image 90 degrees clockwise.
-pub fn rotate_image_cw(image: &Image) -> Image {
+fn rotate_image_cw(image: &Image) -> Image {
     let (width, height) = width_and_height(image);
     let mut new_image = vec![vec![0; height as usize]; width as usize];
     for y in 0..height {
@@ -1013,7 +1036,7 @@ pub fn rotate_image_cw(image: &Image) -> Image {
 }
 
 /// Rotates the image 90 degrees counterclockwise.
-pub fn rotate_image_ccw(image: &Image) -> Image {
+fn rotate_image_ccw(image: &Image) -> Image {
     let (width, height) = width_and_height(image);
     let mut new_image = vec![vec![0; height as usize]; width as usize];
     for y in 0..height {

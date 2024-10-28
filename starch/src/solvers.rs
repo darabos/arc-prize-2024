@@ -139,6 +139,7 @@ fn load_shapes_except_current_shapes(s: &mut SolverState) -> Res<()> {
                 .collect()
         })
         .collect();
+    must_all_be_non_empty!(&s.shapes);
     Ok(())
 }
 
@@ -152,17 +153,14 @@ fn save_whole_image(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
-fn find_shapes(image: &Image) -> Shapes {
-    let shapes = tools::find_shapes_in_image(image, &tools::DIRECTIONS4);
-    tools::discard_background_shapes_touching_border(image, shapes)
-}
-
 type Shapes = Vec<Rc<Shape>>;
 type ShapesPerExample = Vec<Shapes>;
 type ImagePerExample = Vec<Rc<Image>>;
 type ColorList = Vec<i32>;
 type ColorListPerExample = Vec<ColorList>;
 type LinesPerExample = Vec<Rc<tools::LineSet>>;
+type NumberSequence = Vec<i32>;
+type NumberSequencesPerExample = Vec<NumberSequence>;
 
 /// A sub-state that contains only one image and its shapes.
 /// It uses the image from the parent state and applies operations on it.
@@ -182,6 +180,9 @@ pub struct SolverState {
     pub output_images: ImagePerExample,
     pub colors: ColorListPerExample,
     pub shapes: ShapesPerExample,
+    pub shapes_including_background: ShapesPerExample,
+    pub output_shapes: ShapesPerExample,
+    pub output_shapes_including_background: ShapesPerExample,
     pub saved_shapes: Vec<ShapesPerExample>,
     pub colorsets: ShapesPerExample,
     pub scale_up: tools::Vec2,
@@ -189,6 +190,8 @@ pub struct SolverState {
     // Lines that go all the way through the image.
     pub lines: LinesPerExample,
     pub saved_lines: Vec<LinesPerExample>,
+    pub number_sequences: NumberSequencesPerExample,
+    pub output_number_sequences: NumberSequencesPerExample,
     // If this is set, we will apply steps to these states.
     pub substates: Option<Vec<SubState>>,
     // Steps made so far. For the record.
@@ -229,7 +232,33 @@ impl SolverState {
             .iter()
             .map(|image| tools::find_colorsets_in_image(image))
             .collect();
-        self.shapes = self.images.iter().map(|image| find_shapes(image)).collect();
+        self.shapes_including_background = self
+            .images
+            .iter()
+            .map(|image| tools::find_shapes_in_image(image, &tools::DIRECTIONS4))
+            .collect();
+        self.output_shapes_including_background = self
+            .output_images
+            .iter()
+            .map(|image| tools::find_shapes_in_image(image, &tools::DIRECTIONS4))
+            .collect();
+        // Discard background shapes that touch the border.
+        self.shapes = self
+            .shapes_including_background
+            .iter()
+            .zip(&self.images)
+            .map(|(shapes, image)| {
+                tools::discard_background_shapes_touching_border(image, shapes.clone())
+            })
+            .collect();
+        self.output_shapes = self
+            .output_shapes_including_background
+            .iter()
+            .zip(&self.output_images)
+            .map(|(shapes, image)| {
+                tools::discard_background_shapes_touching_border(image, shapes.clone())
+            })
+            .collect();
         for s in &mut self.shapes {
             s.sort_by_key(|shape| shape.color());
         }
@@ -411,6 +440,9 @@ impl SolverState {
                         .collect(),
                     colors: vec![self.colors[i].clone()],
                     shapes: vec![self.shapes[i].clone()],
+                    shapes_including_background: vec![self.shapes_including_background[i].clone()],
+                    output_shapes: vec![],
+                    output_shapes_including_background: vec![],
                     saved_shapes: self
                         .saved_shapes
                         .iter()
@@ -425,6 +457,12 @@ impl SolverState {
                         .iter()
                         .map(|s| vec![s[i].clone()])
                         .collect(),
+                    number_sequences: if self.number_sequences.is_empty() {
+                        vec![]
+                    } else {
+                        vec![self.number_sequences[i].clone()]
+                    },
+                    output_number_sequences: vec![],
                     substates: None,
                     steps: vec![],
                     finishing_steps: vec![],
@@ -436,7 +474,7 @@ impl SolverState {
     pub fn run_steps(&mut self, steps: &'static [SolverStep]) -> Res<()> {
         for step in steps {
             self.validate()?;
-            self.run_step(step)?;
+            self.run_step_safe(step)?;
         }
         Ok(())
     }
@@ -468,6 +506,9 @@ impl SolverState {
             SolverStep::Each(_name, f) => self.apply(f)?,
             SolverStep::All(_name, f) => f(self)?,
             SolverStep::ForEachShape => {
+                if self.substates.is_some() {
+                    return Err(err!("already in substates"));
+                }
                 self.substates = Some(
                     self.substate_per_image()
                         .into_iter()
@@ -550,6 +591,7 @@ fn filter_shapes_by_color(s: &mut SolverState, i: usize) -> Res<()> {
         .filter(|shape| shape.color() == *color)
         .cloned()
         .collect();
+    must_not_be_empty!(&s.shapes[i]);
     Ok(())
 }
 
@@ -667,6 +709,7 @@ fn delete_shapes_touching_border(s: &mut SolverState, i: usize) -> Res<()> {
         .filter(|shape| !shape.is_touching_border(&s.images[i]))
         .cloned()
         .collect();
+    must_not_be_empty!(shapes);
     Ok(())
 }
 
@@ -732,26 +775,34 @@ fn draw_shapes(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn order_shapes_by_color(s: &mut SolverState, i: usize) -> Res<()> {
-    let shapes = &mut s.shapes[i];
-    shapes.sort_by_key(|shape| shape.color());
+    s.shapes[i].sort_by_key(|shape| shape.color());
+    if i < s.output_shapes.len() {
+        s.output_shapes[i].sort_by_key(|shape| shape.color());
+    }
     Ok(())
 }
 
 fn order_shapes_by_size_decreasing(s: &mut SolverState, i: usize) -> Res<()> {
-    let shapes = &mut s.shapes[i];
-    shapes.sort_by_key(|shape| -(shape.cells.len() as i32));
+    s.shapes[i].sort_by_key(|shape| -(shape.cells.len() as i32));
+    if i < s.output_shapes.len() {
+        s.output_shapes[i].sort_by_key(|shape| -(shape.cells.len() as i32));
+    }
     Ok(())
 }
 
 fn order_shapes_by_size_increasing(s: &mut SolverState, i: usize) -> Res<()> {
-    let shapes = &mut s.shapes[i];
-    shapes.sort_by_key(|shape| shape.cells.len());
+    s.shapes[i].sort_by_key(|shape| shape.cells.len());
+    if i < s.output_shapes.len() {
+        s.output_shapes[i].sort_by_key(|shape| shape.cells.len());
+    }
     Ok(())
 }
 
 fn order_shapes_from_left_to_right(s: &mut SolverState, i: usize) -> Res<()> {
-    let shapes = &mut s.shapes[i];
-    shapes.sort_by_key(|shape| shape.bounding_box().left);
+    s.shapes[i].sort_by_key(|shape| shape.bounding_box().left);
+    if i < s.output_shapes.len() {
+        s.output_shapes[i].sort_by_key(|shape| shape.bounding_box().left);
+    }
     Ok(())
 }
 
@@ -856,12 +907,14 @@ fn delete_background_shapes(s: &mut SolverState, i: usize) -> Res<()> {
         .filter(|shape| shape.color() != 0)
         .cloned()
         .collect();
+    must_not_be_empty!(shapes);
     Ok(())
 }
 
 fn move_shapes_per_output_shapes(s: &mut SolverState) -> Res<()> {
+    must_not_be_empty!(&s.output_shapes);
     let shapes0 = &s.shapes[0];
-    let output_shapes0 = find_shapes(&s.output_images[0]);
+    let output_shapes0 = &s.output_shapes[0];
     let relative_output_shapes0: Shapes = output_shapes0
         .iter()
         .map(|shape| shape.to_relative_pos().into())
@@ -877,7 +930,7 @@ fn move_shapes_per_output_shapes(s: &mut SolverState) -> Res<()> {
     // Confirm that this offset is correct for all shapes in all examples.
     for i in 0..s.output_images.len() {
         let shapes = &s.shapes[i];
-        let output_shapes = find_shapes(&s.output_images[i]);
+        let output_shapes = &s.output_shapes[i];
         let relative_output_shapes: Shapes = output_shapes
             .iter()
             .map(|shape| shape.to_relative_pos().into())
@@ -1200,8 +1253,8 @@ fn repeat_shapes_on_lattice(
 fn repeat_shapes_vertically(s: &mut SolverState, i: usize) -> Res<()> {
     let (width, height) = s.width_and_height(i);
     let shapes = &mut s.shapes[i];
-    let bb = shapes[0].bounding_box();
     for shape in shapes {
+        let bb = shape.bounding_box();
         *shape = shape.tile(0, width, bb.height(), height).into();
     }
     Ok(())
@@ -1210,8 +1263,8 @@ fn repeat_shapes_vertically(s: &mut SolverState, i: usize) -> Res<()> {
 fn repeat_shapes_horizontally(s: &mut SolverState, i: usize) -> Res<()> {
     let (width, height) = s.width_and_height(i);
     let shapes = &mut s.shapes[i];
-    let bb = shapes[0].bounding_box();
     for shape in shapes {
+        let bb = shape.bounding_box();
         *shape = shape.tile(bb.width(), width, 0, height).into();
     }
     Ok(())
@@ -1401,6 +1454,14 @@ fn select_grid_cell_max_by(s: &mut SolverState, score_func: fn(&Image) -> i32) -
 }
 
 fn rotate_to_landscape_cw(s: &mut SolverState) -> Res<()> {
+    rotate_to_landscape(s, tools::Rotation::CW)
+}
+
+fn rotate_to_landscape_ccw(s: &mut SolverState) -> Res<()> {
+    rotate_to_landscape(s, tools::Rotation::CCW)
+}
+
+fn rotate_to_landscape(s: &mut SolverState, direction: tools::Rotation) -> Res<()> {
     let needs_rotating: Vec<bool> = (0..s.images.len())
         .map(|i| {
             let (w, h) = s.width_and_height(i);
@@ -1410,23 +1471,14 @@ fn rotate_to_landscape_cw(s: &mut SolverState) -> Res<()> {
     if needs_rotating.iter().all(|&rotate| !rotate) {
         return Err(err!("already landscape"));
     }
-    let new_images = s
-        .images
-        .iter_mut()
-        .zip(&needs_rotating)
-        .map(|(image, rotate)| {
-            if *rotate {
-                tools::rotate_image_cw(image).into()
-            } else {
-                (*image).clone()
-            }
-        })
-        .collect();
+    let new_images = rotate_some_images(&s.images, &needs_rotating, direction);
+    let new_output_images = rotate_some_images(&s.output_images, &needs_rotating, direction);
+    s.output_images = new_output_images;
     s.init_from_images(new_images);
     s.add_finishing_step(move |s: &mut SolverState| {
         for (image, rotate) in s.images.iter_mut().zip(&needs_rotating) {
             if *rotate {
-                *image = tools::rotate_image_ccw(image).into();
+                *image = tools::rotate_image(image, direction.opposite()).into();
             }
         }
         Ok(())
@@ -1434,37 +1486,103 @@ fn rotate_to_landscape_cw(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
-fn rotate_to_landscape_ccw(s: &mut SolverState) -> Res<()> {
-    let needs_rotating: Vec<bool> = (0..s.images.len())
-        .map(|i| {
-            let (w, h) = s.width_and_height(i);
-            h > w
-        })
-        .collect();
-    if needs_rotating.iter().all(|&rotate| !rotate) {
-        return Err(err!("already landscape"));
-    }
-    let new_images = s
-        .images
-        .iter_mut()
-        .zip(&needs_rotating)
+fn rotate_some_images(
+    images: &ImagePerExample,
+    needs_rotating: &Vec<bool>,
+    direction: tools::Rotation,
+) -> ImagePerExample {
+    images
+        .iter()
+        .zip(needs_rotating)
         .map(|(image, rotate)| {
             if *rotate {
-                tools::rotate_image_ccw(image).into()
+                tools::rotate_image(image, direction).into()
             } else {
                 (*image).clone()
             }
         })
+        .collect()
+}
+
+fn refresh_from_image(s: &mut SolverState) -> Res<()> {
+    let images = s.images.clone();
+    s.init_from_images(images);
+    Ok(())
+}
+
+fn allow_background_color_shapes(s: &mut SolverState) -> Res<()> {
+    s.shapes = s.shapes_including_background.clone();
+    s.output_shapes = s.output_shapes_including_background.clone();
+    Ok(())
+}
+
+fn shapes_to_number_sequence(s: &mut SolverState, i: usize) -> Res<()> {
+    if i == 0 {
+        s.number_sequences = vec![vec![]; s.images.len()];
+        s.output_number_sequences = vec![vec![]; s.output_images.len()];
+    }
+    // The input is easy. Just number the shapes.
+    s.number_sequences[i] = (0..s.shapes[i].len() as i32).collect();
+    if i < s.output_shapes.len() {
+        // The output is harder. We need to find the shapes in the output image.
+        let output_shapes = &s.output_shapes[i];
+        // Then identify which of the input shapes they correspond to.
+        let relative_input_shapes: Shapes = s.shapes[i]
+            .iter()
+            .map(|shape| shape.to_relative_pos().into())
+            .collect();
+        s.output_number_sequences[i] = output_shapes
+            .iter()
+            .map(|output_shape| {
+                output_shape
+                    .to_relative_pos()
+                    .find_matching_shape_index(&relative_input_shapes)
+                    .map(|index| index as i32)
+                    .unwrap_or(-1)
+            })
+            .collect();
+    }
+    Ok(())
+}
+
+fn solve_number_sequence(s: &mut SolverState) -> Res<()> {
+    must_not_be_empty!(s.number_sequences);
+    must_not_be_empty!(s.output_number_sequences);
+    // Simple placeholder for now.
+    let longest_sequence = s
+        .output_number_sequences
+        .iter()
+        .enumerate()
+        .max_by_key(|(_i, seq)| seq.len())
+        .map(|(i, _seq)| i)
+        .ok_or(err!("no sequences"))?;
+    for seq in &mut s.number_sequences {
+        *seq = s.output_number_sequences[longest_sequence].clone();
+    }
+    Ok(())
+}
+
+/// Put the shapes after each other from left to right.
+fn number_sequence_to_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    must_not_be_empty!(s.number_sequences);
+    let relative_shapes: Vec<Shape> = s.shapes[i]
+        .iter()
+        .map(|shape| shape.to_relative_pos())
         .collect();
-    s.init_from_images(new_images);
-    s.add_finishing_step(move |s: &mut SolverState| {
-        for (image, rotate) in s.images.iter_mut().zip(&needs_rotating) {
-            if *rotate {
-                *image = tools::rotate_image_cw(image).into();
-            }
+    let mut shapes: Shapes = vec![];
+    let mut next_x = 0;
+    for &index in &s.number_sequences[i] {
+        if index < 0 {
+            return Err(err!("invalid index"));
         }
-        Ok(())
-    });
+        let shape = relative_shapes
+            .get(index as usize)
+            .ok_or(err!("no shape for index"))?
+            .move_by(tools::Vec2 { x: next_x, y: 0 });
+        next_x += shape.bounding_box().width();
+        shapes.push(shape.into());
+    }
+    s.shapes[i] = shapes;
     Ok(())
 }
 
@@ -1494,18 +1612,25 @@ impl std::fmt::Display for SolverStep {
     }
 }
 pub const ALL_STEPS: &[SolverStep] = &[
+    ForEachShape,
+    step_all!(allow_background_color_shapes),
     // step_all!(grow_flowers),
     step_all!(load_shapes_except_current_shapes),
     step_all!(move_shapes_per_output),
     step_all!(recolor_image_per_output),
     step_all!(recolor_shapes_per_output),
+    step_all!(refresh_from_image),
     step_all!(repeat_shapes_on_lattice_per_output),
+    step_all!(restore_grid),
+    step_all!(rotate_to_landscape_cw),
+    step_all!(rotate_to_landscape_ccw),
     step_all!(save_first_shape_use_the_rest),
     step_all!(save_shapes_and_load_previous),
     step_all!(scale_up_image_add_grid),
     step_all!(scale_up_image),
     step_all!(select_grid_cell_least_filled_in),
     step_all!(select_grid_cell_most_filled_in),
+    step_all!(solve_number_sequence),
     step_all!(split_into_two_images),
     step_all!(use_colorsets_as_shapes),
     step_all!(use_output_size),
@@ -1519,22 +1644,29 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(draw_shapes),
     step_each!(filter_shapes_by_color),
     step_each!(find_repeating_pattern_in_shape),
+    step_each!(delete_shapes_touching_border),
     step_each!(move_saved_shape_to_cover_current_shape_max),
     step_each!(move_shapes_to_touch_saved_shape),
+    step_each!(pick_bottom_right_shape),
+    step_all!(move_shapes_per_output_shapes),
+    step_each!(number_sequence_to_shapes),
     step_each!(order_colors_by_shapes),
     step_each!(order_shapes_by_size_decreasing),
     step_each!(order_shapes_by_size_increasing),
+    step_each!(order_shapes_from_left_to_right),
+    step_each!(order_shapes_by_color),
     step_each!(pick_bottom_right_shape_per_color),
     step_each!(recolor_saved_shapes_to_current_shape),
     step_each!(remove_grid),
     step_each!(repeat_last_move_and_draw),
-    step_all!(restore_grid),
+    step_each!(repeat_shapes_vertically),
+    step_each!(repeat_shapes_horizontally),
+    step_each!(shapes_to_number_sequence),
     step_each!(tile_shapes_after_scale_up),
     step_each!(use_image_as_shape),
     step_each!(use_image_without_background_as_shape),
     step_each!(use_next_color),
     step_each!(use_previous_color),
-    ForEachShape,
 ];
 pub const SOLVERS: &[&[SolverStep]] = &[
     &[
@@ -1626,13 +1758,12 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(rotate_to_landscape_ccw),
         step_each!(repeat_shapes_vertically),
         step_each!(draw_shapes),
-        step_each!(order_shapes_from_left_to_right),
-        step_all!(save_first_shape_use_the_rest),
-        // step_each!(recolor_saved_shapes_to_current_shape),
-        step_each!(move_saved_shape_to_cover_current_shape_max),
-        // step_each!(draw_shapes),
-        step_each!(repeat_last_move_and_draw),
-        step_all!(print_images_step),
+        step_all!(refresh_from_image),
+        step_all!(allow_background_color_shapes),
+        step_each!(shapes_to_number_sequence),
+        step_all!(solve_number_sequence),
+        step_each!(number_sequence_to_shapes),
+        step_each!(draw_shapes),
     ],
     &[
         // 71
