@@ -345,6 +345,7 @@ impl std::ops::Add<Vec2> for Pixel {
     }
 }
 
+/// Always inclusive. (0, 0, 1, 1) is a 2x2 square.
 pub struct Rect {
     pub top: i32,
     pub left: i32,
@@ -403,8 +404,8 @@ impl Shape {
         Rect {
             top,
             left,
-            bottom: bottom + 1,
-            right: right + 1,
+            bottom,
+            right,
         }
     }
 
@@ -495,23 +496,32 @@ impl Shape {
     pub fn color(&self) -> i32 {
         self.cells[0].color
     }
-
     #[must_use]
     pub fn tile(&self, x_step: i32, width: i32, y_step: i32, height: i32) -> Shape {
         let mut new_cells = vec![];
         for Pixel { x, y, color } in &self.cells {
-            let mut tx = 0;
-            while *x + tx < width {
-                let mut ty = 0;
-                while *y + ty < height {
-                    new_cells.push(Pixel {
-                        x: *x + tx,
-                        y: *y + ty,
-                        color: *color,
-                    });
-                    ty += y_step;
+            for &tx in &[x_step, -x_step] {
+                let mut cx = *x;
+                while cx >= 0 && cx < width {
+                    for &ty in &[y_step, -y_step] {
+                        let mut cy = *y;
+                        while cy >= 0 && cy < height {
+                            new_cells.push(Pixel {
+                                x: cx,
+                                y: cy,
+                                color: *color,
+                            });
+                            if ty == 0 {
+                                break;
+                            }
+                            cy += ty;
+                        }
+                    }
+                    if tx == 0 {
+                        break;
+                    }
+                    cx += tx;
                 }
-                tx += x_step;
             }
         }
         Shape {
@@ -988,4 +998,28 @@ pub fn width_and_height(image: &Image) -> (i32, i32) {
     }
     let width = image[0].len() as i32;
     (width, height)
+}
+
+/// Rotates the image 90 degrees clockwise.
+pub fn rotate_image_cw(image: &Image) -> Image {
+    let (width, height) = width_and_height(image);
+    let mut new_image = vec![vec![0; height as usize]; width as usize];
+    for y in 0..height {
+        for x in 0..width {
+            new_image[x as usize][(height - y - 1) as usize] = image[y as usize][x as usize];
+        }
+    }
+    new_image
+}
+
+/// Rotates the image 90 degrees counterclockwise.
+pub fn rotate_image_ccw(image: &Image) -> Image {
+    let (width, height) = width_and_height(image);
+    let mut new_image = vec![vec![0; height as usize]; width as usize];
+    for y in 0..height {
+        for x in 0..width {
+            new_image[(width - x - 1) as usize][y as usize] = image[y as usize][x as usize];
+        }
+    }
+    new_image
 }

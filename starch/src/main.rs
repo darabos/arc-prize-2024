@@ -115,8 +115,8 @@ fn evaluate_automatic_solver() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // let debug = "09629e4f";
-    let debug = "";
+    let debug = "0a938d79";
+    // let debug = "";
     let tasks: Vec<(String, Task)> = if debug == "" {
         tasks //.into_iter().skip(30).collect()
     } else {
@@ -166,8 +166,8 @@ fn evaluate_manual_solvers() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    // let debug = (4, "045e512c");
-    let debug = (-1, "");
+    let debug = (12, "0a938d79");
+    // let debug = (-1, "");
     let tasks: Vec<(String, Task)> = if debug.0 < 0 {
         tasks //.into_iter().take(11).collect()
     } else {

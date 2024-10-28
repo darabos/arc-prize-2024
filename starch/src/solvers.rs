@@ -185,13 +185,16 @@ pub struct SolverState {
     pub saved_shapes: Vec<ShapesPerExample>,
     pub colorsets: ShapesPerExample,
     pub scale_up: tools::Vec2,
-    pub last_move: tools::Vec2,
+    pub last_move: Vec<tools::Vec2>,
     // Lines that go all the way through the image.
     pub lines: LinesPerExample,
     pub saved_lines: Vec<LinesPerExample>,
     // If this is set, we will apply steps to these states.
     pub substates: Option<Vec<SubState>>,
+    // Steps made so far. For the record.
     pub steps: Vec<&'static SolverStep>,
+    // Steps to be done at the end. (In get_results().)
+    pub finishing_steps: Vec<Rc<Box<dyn Fn(&mut SolverState) -> Res<()>>>>,
 }
 
 impl SolverState {
@@ -210,6 +213,7 @@ impl SolverState {
         let mut state = SolverState {
             task: Rc::new(task.clone()),
             output_images,
+            last_move: vec![tools::Vec2::ZERO; images.len()],
             ..Default::default()
         };
         state.init_from_images(images);
@@ -299,14 +303,26 @@ impl SolverState {
     }
 
     pub fn get_results(&self) -> Vec<Example> {
-        self.images
-            .iter()
-            .zip(self.task.train.iter().chain(self.task.test.iter()))
-            .map(|(image, example)| Example {
-                input: example.input.clone(),
-                output: (**image).clone(),
-            })
-            .collect()
+        fn images_to_examples(state: &SolverState) -> Vec<Example> {
+            state
+                .images
+                .iter()
+                .zip(state.task.train.iter().chain(state.task.test.iter()))
+                .map(|(image, example)| Example {
+                    input: example.input.clone(),
+                    output: (**image).clone(),
+                })
+                .collect()
+        }
+        if self.finishing_steps.is_empty() {
+            images_to_examples(self)
+        } else {
+            let mut finished = self.clone();
+            for step in &self.finishing_steps {
+                step(&mut finished).unwrap();
+            }
+            images_to_examples(&finished)
+        }
     }
     fn width_and_height(&self, i: usize) -> (i32, i32) {
         tools::width_and_height(&self.images[i])
@@ -402,7 +418,7 @@ impl SolverState {
                         .collect(),
                     colorsets: vec![self.colorsets[i].clone()],
                     scale_up: self.scale_up,
-                    last_move: self.last_move,
+                    last_move: self.last_move.clone(),
                     lines: vec![self.lines[i].clone()],
                     saved_lines: self
                         .saved_lines
@@ -411,6 +427,7 @@ impl SolverState {
                         .collect(),
                     substates: None,
                     steps: vec![],
+                    finishing_steps: vec![],
                 },
             })
             .collect()
@@ -475,6 +492,10 @@ impl SolverState {
             .iter()
             .zip(self.output_images.iter())
             .all(|(image, output)| tools::compare_images(image, output))
+    }
+
+    pub fn add_finishing_step(&mut self, f: impl Fn(&mut SolverState) -> Res<()> + 'static) {
+        self.finishing_steps.push(Rc::new(Box::new(f)));
     }
 }
 
@@ -728,7 +749,13 @@ fn order_shapes_by_size_increasing(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
-fn find_repeating_pattern(s: &mut SolverState, i: usize) -> Res<()> {
+fn order_shapes_from_left_to_right(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &mut s.shapes[i];
+    shapes.sort_by_key(|shape| shape.bounding_box().left);
+    Ok(())
+}
+
+fn find_repeating_pattern_in_shape(s: &mut SolverState, i: usize) -> Res<()> {
     let (width, height) = s.width_and_height(i);
     let shapes = &mut s.shapes[i];
     let shape = shapes.get(0).ok_or(err!("no shapes"))?;
@@ -920,7 +947,7 @@ fn move_saved_shape_to_cover_current_shape_max(s: &mut SolverState, i: usize) ->
             moved.move_by_mut(distance * direction);
             if moved.covers(current_shape) {
                 s.shapes[i] = vec![moved.into()];
-                s.last_move = distance * direction;
+                s.last_move[i] = distance * direction;
                 return Ok(());
             }
             moved.restore_from(&saved_shape);
@@ -932,7 +959,7 @@ fn move_saved_shape_to_cover_current_shape_max(s: &mut SolverState, i: usize) ->
 /// Draws the shape in its current location, then moves it again and draws it again,
 /// until it leaves the image.
 fn repeat_last_move_and_draw(s: &mut SolverState, i: usize) -> Res<()> {
-    if s.last_move == tools::Vec2::ZERO {
+    if s.last_move[i] == tools::Vec2::ZERO {
         return Err(err!("no last move"));
     }
     let mut shapes: Vec<Shape> = s.shapes[i].iter().map(|shape| (**shape).clone()).collect();
@@ -940,7 +967,7 @@ fn repeat_last_move_and_draw(s: &mut SolverState, i: usize) -> Res<()> {
     for _ in 0..10 {
         for shape in &mut shapes {
             tools::draw_shape(&mut new_image, &shape);
-            shape.move_by_mut(s.last_move);
+            shape.move_by_mut(s.last_move[i]);
         }
     }
     s.images[i] = Rc::new(new_image);
@@ -1114,27 +1141,31 @@ fn repeat_shapes_on_lattice_per_output(s: &mut SolverState) -> Res<()> {
         10,
     )?;
     for vertical_y in 1..3 {
-        let vertical_x = find_matching_offset(
-            &s.shapes,
-            &s.output_images,
-            tools::RIGHT,
-            vertical_y * tools::DOWN,
-            -2,
-            2,
-        )?;
-        if are_shapes_present_at(
-            &s.shapes,
-            &s.output_images,
-            vertical_y * tools::DOWN + (vertical_x + horizontal_period) * tools::RIGHT,
-        ) {
-            return repeat_shapes_on_lattice(s, horizontal_period, vertical_x, vertical_y);
-        }
-        if are_shapes_present_at(
-            &s.shapes,
-            &s.output_images,
-            vertical_y * tools::DOWN + (vertical_x - horizontal_period) * tools::RIGHT,
-        ) {
-            return repeat_shapes_on_lattice(s, horizontal_period, vertical_x, vertical_y);
+        for m in [1, -1].iter() {
+            let vertical_y = vertical_y * *m;
+            if let Ok(vertical_x) = find_matching_offset(
+                &s.shapes,
+                &s.output_images,
+                tools::RIGHT,
+                vertical_y * tools::DOWN,
+                -2,
+                2,
+            ) {
+                if are_shapes_present_at(
+                    &s.shapes,
+                    &s.output_images,
+                    vertical_y * tools::DOWN + (vertical_x + horizontal_period) * tools::RIGHT,
+                ) {
+                    return repeat_shapes_on_lattice(s, horizontal_period, vertical_x, vertical_y);
+                }
+                if are_shapes_present_at(
+                    &s.shapes,
+                    &s.output_images,
+                    vertical_y * tools::DOWN + (vertical_x - horizontal_period) * tools::RIGHT,
+                ) {
+                    return repeat_shapes_on_lattice(s, horizontal_period, vertical_x, vertical_y);
+                }
+            }
         }
     }
     Err(err!("no match found"))
@@ -1162,6 +1193,26 @@ fn repeat_shapes_on_lattice(
             }
         }
         s.images[i] = Rc::new(new_image);
+    }
+    Ok(())
+}
+
+fn repeat_shapes_vertically(s: &mut SolverState, i: usize) -> Res<()> {
+    let (width, height) = s.width_and_height(i);
+    let shapes = &mut s.shapes[i];
+    let bb = shapes[0].bounding_box();
+    for shape in shapes {
+        *shape = shape.tile(0, width, bb.height(), height).into();
+    }
+    Ok(())
+}
+
+fn repeat_shapes_horizontally(s: &mut SolverState, i: usize) -> Res<()> {
+    let (width, height) = s.width_and_height(i);
+    let shapes = &mut s.shapes[i];
+    let bb = shapes[0].bounding_box();
+    for shape in shapes {
+        *shape = shape.tile(bb.width(), width, 0, height).into();
     }
     Ok(())
 }
@@ -1349,6 +1400,74 @@ fn select_grid_cell_max_by(s: &mut SolverState, score_func: fn(&Image) -> i32) -
     Ok(())
 }
 
+fn rotate_to_landscape_cw(s: &mut SolverState) -> Res<()> {
+    let needs_rotating: Vec<bool> = (0..s.images.len())
+        .map(|i| {
+            let (w, h) = s.width_and_height(i);
+            h > w
+        })
+        .collect();
+    if needs_rotating.iter().all(|&rotate| !rotate) {
+        return Err(err!("already landscape"));
+    }
+    let new_images = s
+        .images
+        .iter_mut()
+        .zip(&needs_rotating)
+        .map(|(image, rotate)| {
+            if *rotate {
+                tools::rotate_image_cw(image).into()
+            } else {
+                (*image).clone()
+            }
+        })
+        .collect();
+    s.init_from_images(new_images);
+    s.add_finishing_step(move |s: &mut SolverState| {
+        for (image, rotate) in s.images.iter_mut().zip(&needs_rotating) {
+            if *rotate {
+                *image = tools::rotate_image_ccw(image).into();
+            }
+        }
+        Ok(())
+    });
+    Ok(())
+}
+
+fn rotate_to_landscape_ccw(s: &mut SolverState) -> Res<()> {
+    let needs_rotating: Vec<bool> = (0..s.images.len())
+        .map(|i| {
+            let (w, h) = s.width_and_height(i);
+            h > w
+        })
+        .collect();
+    if needs_rotating.iter().all(|&rotate| !rotate) {
+        return Err(err!("already landscape"));
+    }
+    let new_images = s
+        .images
+        .iter_mut()
+        .zip(&needs_rotating)
+        .map(|(image, rotate)| {
+            if *rotate {
+                tools::rotate_image_ccw(image).into()
+            } else {
+                (*image).clone()
+            }
+        })
+        .collect();
+    s.init_from_images(new_images);
+    s.add_finishing_step(move |s: &mut SolverState| {
+        for (image, rotate) in s.images.iter_mut().zip(&needs_rotating) {
+            if *rotate {
+                *image = tools::rotate_image_cw(image).into();
+            }
+        }
+        Ok(())
+    });
+    Ok(())
+}
+
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
@@ -1399,7 +1518,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(draw_shape_where_non_empty),
     step_each!(draw_shapes),
     step_each!(filter_shapes_by_color),
-    step_each!(find_repeating_pattern),
+    step_each!(find_repeating_pattern_in_shape),
     step_each!(move_saved_shape_to_cover_current_shape_max),
     step_each!(move_shapes_to_touch_saved_shape),
     step_each!(order_colors_by_shapes),
@@ -1435,7 +1554,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         // 2
         step_all!(use_output_size),
         step_all!(use_colorsets_as_shapes),
-        step_each!(find_repeating_pattern),
+        step_each!(find_repeating_pattern_in_shape),
         step_all!(recolor_shapes_per_output),
         step_each!(draw_shapes),
     ],
@@ -1501,6 +1620,19 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(order_shapes_by_size_increasing),
         step_each!(order_colors_by_shapes),
         step_all!(grow_flowers),
+    ],
+    &[
+        // 12
+        step_all!(rotate_to_landscape_ccw),
+        step_each!(repeat_shapes_vertically),
+        step_each!(draw_shapes),
+        step_each!(order_shapes_from_left_to_right),
+        step_all!(save_first_shape_use_the_rest),
+        // step_each!(recolor_saved_shapes_to_current_shape),
+        step_each!(move_saved_shape_to_cover_current_shape_max),
+        // step_each!(draw_shapes),
+        step_each!(repeat_last_move_and_draw),
+        step_all!(print_images_step),
     ],
     &[
         // 71
