@@ -1696,6 +1696,45 @@ fn number_sequence_to_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
+    let mut color_map: Vec<i32> = vec![-1; COLORS.len()];
+    for i in 0..s.output_images.len() {
+        let input = &s.images[i];
+        let output = &s.output_images[i];
+        let (w, h) = tools::width_and_height(input);
+        let (ow, oh) = tools::width_and_height(output);
+        if w != ow || h != oh {
+            return Err(err!("images have different sizes"));
+        }
+        for y in 0..h {
+            for x in 0..w {
+                let input_color = input[y as usize][x as usize];
+                let output_color = output[y as usize][x as usize];
+                if color_map[input_color as usize] == -1 {
+                    color_map[input_color as usize] = output_color;
+                } else if color_map[input_color as usize] != output_color {
+                    return Err(err!("no consistent mapping"));
+                }
+            }
+        }
+    }
+    let mut new_images: ImagePerExample = vec![];
+    for i in 0..s.images.len() {
+        let mut new_image = vec![];
+        for row in &*s.images[i] {
+            let mut new_row = vec![];
+            for &cell in row {
+                let c = color_map[cell as usize];
+                new_row.push(if c == -1 { cell } else { c });
+            }
+            new_image.push(new_row);
+        }
+        new_images.push(new_image.into());
+    }
+    s.images = new_images;
+    Ok(())
+}
+
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
@@ -1886,6 +1925,10 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(substates_for_each_color),
         step_each!(filter_shapes_by_color),
         step_all!(grow_flowers),
+    ],
+    &[
+        // 15
+        step_all!(remap_colors_per_output),
     ],
     &[
         // 71
