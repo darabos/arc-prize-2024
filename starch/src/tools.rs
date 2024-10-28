@@ -472,19 +472,25 @@ impl Shape {
     /// Returns true if the shape matches the image at the given position.
     /// Returns false if the shape is entirely out of bounds.
     pub fn matches_image_when_moved_by(&self, image: &Image, vector: Vec2) -> bool {
-        let mut something_matched = false;
+        let mut matched_count = 0;
         for Pixel { x, y, color } in &self.cells {
             let nx = x + vector.x;
             let ny = y + vector.y;
             if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
                 continue;
             }
-            if image[ny as usize][nx as usize] != *color {
+            let icolor = image[ny as usize][nx as usize];
+            if icolor == 0 {
+                continue;
+            }
+            if icolor != *color {
                 return false;
             }
-            something_matched = true;
+            matched_count += 1;
         }
-        something_matched
+        matched_count > 0
+        // TODO: Why isn't this better?
+        // matched_count >= 2 && matched_count >= self.cells.len() / 2
     }
 
     pub fn recolor(&mut self, color: i32) {

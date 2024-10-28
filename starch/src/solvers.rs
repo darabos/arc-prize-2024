@@ -583,6 +583,14 @@ fn print_images_step(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+fn substates_for_each_image(s: &mut SolverState) -> Res<()> {
+    if s.is_substate {
+        return Err(err!("already split into substates"));
+    }
+    s.substates = Some(s.substate_per_image());
+    Ok(())
+}
+
 fn substates_for_each_shape(s: &mut SolverState) -> Res<()> {
     if s.is_substate {
         return Err(err!("already split into substates"));
@@ -1214,7 +1222,7 @@ fn recolor_image_per_output(s: &mut SolverState) -> Res<()> {
 }
 
 fn find_matching_offset(
-    shape: &ShapesPerExample,
+    shapes: &ShapesPerExample,
     images: &ImagePerExample,
     direction: tools::Vec2,
     start_pos: tools::Vec2,
@@ -1222,7 +1230,7 @@ fn find_matching_offset(
     max_offset: i32,
 ) -> Res<i32> {
     for distance in min_offset..=max_offset {
-        if are_shapes_present_at(shape, images, start_pos + distance * direction) {
+        if are_shapes_present_at(shapes, images, start_pos + distance * direction) {
             return Ok(distance);
         }
     }
@@ -1246,6 +1254,17 @@ fn are_shapes_present_at(
 }
 
 fn repeat_shapes_on_lattice_per_output(s: &mut SolverState) -> Res<()> {
+    repeat_shapes_on_lattice_per_reference(s, &s.output_images.clone())
+}
+
+fn repeat_shapes_on_lattice_per_image(s: &mut SolverState) -> Res<()> {
+    repeat_shapes_on_lattice_per_reference(s, &s.images.clone())
+}
+
+fn repeat_shapes_on_lattice_per_reference(
+    s: &mut SolverState,
+    references: &ImagePerExample,
+) -> Res<()> {
     // Make sure the shapes are not tiny.
     for shapes_per in &s.shapes {
         let total_cells: usize = shapes_per.iter().map(|s| s.cells.len()).sum();
@@ -1257,18 +1276,18 @@ fn repeat_shapes_on_lattice_per_output(s: &mut SolverState) -> Res<()> {
     // the horizontal period (a single number) and the vertical offset (a Vec2).
     let horizontal_period = find_matching_offset(
         &s.shapes,
-        &s.output_images,
+        references,
         tools::RIGHT,
         tools::Vec2::ZERO,
         1,
         10,
     )?;
-    for vertical_y in 1..3 {
+    for vertical_y in 1..10 {
         for m in [1, -1].iter() {
             let vertical_y = vertical_y * *m;
             if let Ok(vertical_x) = find_matching_offset(
                 &s.shapes,
-                &s.output_images,
+                references,
                 tools::RIGHT,
                 vertical_y * tools::DOWN,
                 -2,
@@ -1276,14 +1295,14 @@ fn repeat_shapes_on_lattice_per_output(s: &mut SolverState) -> Res<()> {
             ) {
                 if are_shapes_present_at(
                     &s.shapes,
-                    &s.output_images,
+                    references,
                     vertical_y * tools::DOWN + (vertical_x + horizontal_period) * tools::RIGHT,
                 ) {
                     return repeat_shapes_on_lattice(s, horizontal_period, vertical_x, vertical_y);
                 }
                 if are_shapes_present_at(
                     &s.shapes,
-                    &s.output_images,
+                    references,
                     vertical_y * tools::DOWN + (vertical_x - horizontal_period) * tools::RIGHT,
                 ) {
                     return repeat_shapes_on_lattice(s, horizontal_period, vertical_x, vertical_y);
@@ -1781,6 +1800,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(solve_number_sequence),
     step_all!(split_into_two_images),
     step_all!(substates_for_each_color),
+    step_all!(substates_for_each_image),
     step_all!(substates_for_each_shape),
     step_all!(use_colorsets_as_shapes),
     step_all!(use_output_size),
@@ -1929,6 +1949,12 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // 15
         step_all!(remap_colors_per_output),
+    ],
+    &[
+        // 16
+        step_each!(use_image_without_background_as_shape),
+        step_all!(substates_for_each_image),
+        step_all!(repeat_shapes_on_lattice_per_image),
     ],
     &[
         // 71
