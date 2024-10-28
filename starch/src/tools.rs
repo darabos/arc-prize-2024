@@ -55,16 +55,17 @@ pub struct Vec2 {
 impl Vec2 {
     pub const ZERO: Vec2 = Vec2 { x: 0, y: 0 };
 }
-#[derive(Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Pixel {
     pub x: i32,
     pub y: i32,
     pub color: Color,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug)]
 pub struct Shape {
     pub cells: Vec<Pixel>,            // Always sorted.
+    pub bb: Rect,                     // Bounding box.
     pub has_relative_colors: bool,    // Color numbers are indexes into state.colors.
     pub has_relative_positions: bool, // x/y are relative to the top-left corner of the shape.
 }
@@ -203,14 +204,14 @@ pub fn discard_background_shapes_touching_border(
 /// Finds "colorsets" in the image. A colorset is a set of all pixels with the same color.
 pub fn find_colorsets_in_image(image: &Image) -> Vec<Rc<Shape>> {
     // Create blank colorset for each color.
-    let mut colorsets = vec![Shape::default(); COLORS.len()];
+    let mut colorsets = vec![vec![]; COLORS.len()];
     for y in 0..image.len() {
         for x in 0..image[0].len() {
             let color = image[y][x];
             if color == 0 {
                 continue;
             }
-            colorsets[color as usize].cells.push(Pixel {
+            colorsets[color as usize].push(Pixel {
                 x: x as i32,
                 y: y as i32,
                 color,
@@ -220,8 +221,8 @@ pub fn find_colorsets_in_image(image: &Image) -> Vec<Rc<Shape>> {
     // Put non-empty colorsets into Rc.
     colorsets
         .into_iter()
-        .filter(|colorset| !colorset.cells.is_empty())
-        .map(|colorset| Rc::new(colorset))
+        .filter(|colorset| !colorset.is_empty())
+        .map(|colorset| Shape::new(colorset).into())
         .collect()
 }
 
@@ -346,6 +347,7 @@ impl std::ops::Add<Vec2> for Pixel {
 }
 
 /// Always inclusive. (0, 0, 1, 1) is a 2x2 square.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Rect {
     pub top: i32,
     pub left: i32,
@@ -383,29 +385,28 @@ impl Rect {
 impl Shape {
     #[must_use]
     pub fn new(mut cells: Vec<Pixel>) -> Shape {
+        assert!(!cells.is_empty());
         cells.sort();
-        Shape {
-            cells,
-            ..Default::default()
-        }
-    }
-    #[must_use]
-    pub fn bounding_box(&self) -> Rect {
         let mut top = std::i32::MAX;
         let mut left = std::i32::MAX;
         let mut bottom = std::i32::MIN;
         let mut right = std::i32::MIN;
-        for Pixel { x, y, color: _ } in &self.cells {
+        for Pixel { x, y, color: _ } in &cells {
             top = top.min(*y);
             left = left.min(*x);
             bottom = bottom.max(*y);
             right = right.max(*x);
         }
-        Rect {
-            top,
-            left,
-            bottom,
-            right,
+        Shape {
+            cells,
+            bb: Rect {
+                top,
+                left,
+                bottom,
+                right,
+            },
+            has_relative_colors: false,
+            has_relative_positions: false,
         }
     }
 
@@ -426,8 +427,8 @@ impl Shape {
     #[must_use]
     pub fn does_overlap(&self, other: &Shape) -> bool {
         // Quick check by bounding box.
-        let a_box = self.bounding_box();
-        let b_box = other.bounding_box();
+        let a_box = self.bb;
+        let b_box = other.bb;
         if a_box.right < b_box.left || a_box.left > b_box.right {
             return false;
         }
@@ -454,7 +455,7 @@ impl Shape {
                 color: *color,
             })
             .collect();
-        Shape { cells, ..*self }
+        Shape::new(cells)
     }
     pub fn move_by_mut(&mut self, vector: Vec2) {
         for Pixel { x, y, color: _ } in &mut self.cells {
@@ -497,7 +498,7 @@ impl Shape {
         self.cells[0].color
     }
     #[must_use]
-    pub fn tile(&self, x_step: i32, width: i32, y_step: i32, height: i32) -> Shape {
+    pub fn tile(&self, x_step: i32, width: i32, y_step: i32, height: i32) -> Res<Shape> {
         let mut new_cells = vec![];
         for Pixel { x, y, color } in &self.cells {
             for &tx in &[x_step, -x_step] {
@@ -524,14 +525,14 @@ impl Shape {
                 }
             }
         }
-        Shape {
-            cells: new_cells,
-            ..*self
+        if new_cells.is_empty() {
+            return Err("empty");
         }
+        Ok(Shape::new(new_cells))
     }
 
     #[must_use]
-    pub fn crop(&self, left: i32, top: i32, right: i32, bottom: i32) -> Shape {
+    pub fn crop(&self, left: i32, top: i32, right: i32, bottom: i32) -> Res<Shape> {
         let mut new_cells = vec![];
         for Pixel { x, y, color } in &self.cells {
             if *x >= left && *x <= right && *y >= top && *y <= bottom {
@@ -542,10 +543,10 @@ impl Shape {
                 });
             }
         }
-        Shape {
-            cells: new_cells,
-            ..*self
+        if new_cells.is_empty() {
+            return Err("empty");
         }
+        Ok(Shape::new(new_cells))
     }
 
     pub fn draw_where_non_empty(&self, image: &mut Image) {
@@ -576,10 +577,7 @@ impl Shape {
                 });
             }
         }
-        Shape {
-            cells,
-            ..Default::default()
-        }
+        Shape::new(cells)
     }
 
     #[must_use]
@@ -595,10 +593,9 @@ impl Shape {
 
     #[allow(dead_code)]
     pub fn print(&self) {
-        let box_ = self.bounding_box();
-        println!("top left: {}, {}", box_.left, box_.top);
-        for y in box_.top..=box_.bottom {
-            for x in box_.left..=box_.right {
+        println!("top left: {}, {}", self.bb.left, self.bb.top);
+        for y in self.bb.top..=self.bb.bottom {
+            for x in self.bb.left..=self.bb.right {
                 print_color(self.color_at(x, y).unwrap_or(-1));
             }
             println!();
@@ -635,11 +632,9 @@ impl Shape {
                 color: *color,
             })
             .collect();
-        Shape {
-            cells,
-            has_relative_positions: true,
-            ..*self
-        }
+        let mut shp = Shape::new(cells);
+        shp.has_relative_positions = true;
+        shp
     }
 
     /// Requires exact match.
@@ -655,10 +650,9 @@ impl Shape {
 
     #[must_use]
     pub fn as_image(&self) -> Image {
-        let box_ = self.bounding_box();
-        let mut image = vec![vec![0; box_.width() as usize]; box_.height() as usize];
+        let mut image = vec![vec![0; self.bb.width() as usize]; self.bb.height() as usize];
         for Pixel { x, y, color } in &self.cells {
-            image[(y - box_.top) as usize][(x - box_.left) as usize] = *color;
+            image[(y - self.bb.top) as usize][(x - self.bb.left) as usize] = *color;
         }
         image
     }
@@ -777,15 +771,13 @@ pub fn move_shape_to_shape_in_direction(
 // Moves the first shape in a cardinal direction until it touches the second shape.
 pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Shape) -> Res<Image> {
     // Find the moving direction.
-    let to_move_box = to_move.bounding_box();
-    let move_to_box = move_to.bounding_box();
-    if to_move_box.right < move_to_box.left {
+    if to_move.bb.right < move_to.bb.left {
         return move_shape_to_shape_in_direction(image, to_move, move_to, RIGHT);
     }
-    if to_move_box.left > move_to_box.right {
+    if to_move.bb.left > move_to.bb.right {
         return move_shape_to_shape_in_direction(image, to_move, move_to, LEFT);
     }
-    if to_move_box.bottom < move_to_box.top {
+    if to_move.bb.bottom < move_to.bb.top {
         return move_shape_to_shape_in_direction(image, to_move, move_to, DOWN);
     }
     return move_shape_to_shape_in_direction(image, to_move, move_to, UP);
@@ -844,10 +836,7 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
             }
         }
     }
-    Shape {
-        cells,
-        ..Default::default()
-    }
+    Shape::new(cells)
 }
 
 pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Shape {

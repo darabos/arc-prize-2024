@@ -92,7 +92,7 @@ fn save_shapes(s: &mut SolverState) -> Res<()> {
 }
 
 fn load_earlier_shapes(s: &mut SolverState, offset: usize) -> Res<()> {
-    if s.saved_shapes.len() - 1 < offset {
+    if s.saved_shapes.len() < offset + 1 {
         return Err(err!("no saved shapes"));
     }
     s.shapes = s.saved_shapes[s.saved_shapes.len() - 1 - offset].clone();
@@ -494,6 +494,9 @@ impl SolverState {
     pub fn run_step(&mut self, step: &'static SolverStep) -> Res<()> {
         self.steps.push(step);
         if let Some(substates) = &mut self.substates {
+            if matches!(step, SolverStep::ForEachShape) {
+                return Err(err!("ForEachShape not allowed in substates"));
+            }
             for substate in substates {
                 let state = &mut substate.state;
                 state.images = vec![self.images[substate.image_index].clone()];
@@ -506,8 +509,8 @@ impl SolverState {
             SolverStep::Each(_name, f) => self.apply(f)?,
             SolverStep::All(_name, f) => f(self)?,
             SolverStep::ForEachShape => {
-                if self.substates.is_some() {
-                    return Err(err!("already in substates"));
+                if self.shapes.iter().any(|shapes| shapes.len() > 10) {
+                    return Err(err!("too many shapes"));
                 }
                 self.substates = Some(
                     self.substate_per_image()
@@ -686,7 +689,7 @@ fn tile_shapes_after_scale_up(s: &mut SolverState, i: usize) -> Res<()> {
     let old_height = current_height / s.scale_up.y;
     for shape in shapes.iter_mut() {
         *shape = shape
-            .tile(old_width, current_width, old_height, current_height)
+            .tile(old_width, current_width, old_height, current_height)?
             .into();
     }
     Ok(())
@@ -799,9 +802,9 @@ fn order_shapes_by_size_increasing(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn order_shapes_from_left_to_right(s: &mut SolverState, i: usize) -> Res<()> {
-    s.shapes[i].sort_by_key(|shape| shape.bounding_box().left);
+    s.shapes[i].sort_by_key(|shape| shape.bb.left);
     if i < s.output_shapes.len() {
-        s.output_shapes[i].sort_by_key(|shape| shape.bounding_box().left);
+        s.output_shapes[i].sort_by_key(|shape| shape.bb.left);
     }
     Ok(())
 }
@@ -810,22 +813,15 @@ fn find_repeating_pattern_in_shape(s: &mut SolverState, i: usize) -> Res<()> {
     let (width, height) = s.width_and_height(i);
     let shapes = &mut s.shapes[i];
     let shape = shapes.get(0).ok_or(err!("no shapes"))?;
-    let bb = shape.bounding_box();
-    if bb.width() < 3 && bb.height() < 3 {
+    if shape.bb.width() < 3 && shape.bb.height() < 3 {
         return Err(err!("shape too small"));
     }
     let mut w = 1;
     let mut h = 1;
     for _ in 0..10 {
-        let p = shape.crop(0, 0, w, h);
-        let p1 = p.tile(w, bb.right, h, bb.bottom);
-        if p1 == **shape {
-            let p2 = p.tile(w, width, h, height);
-            if p2.cells.is_empty() {
-                // This can happen if the image is smaller than the shape.
-                return Err(err!("empty pattern"));
-            }
-            s.shapes[i] = vec![p2.into()];
+        let pattern = tile_shape(shape, w, h, width, height);
+        if let Ok(pattern) = pattern {
+            s.shapes[i] = vec![pattern.into()];
             return Ok(());
         }
         if w < h && w < width {
@@ -838,6 +834,15 @@ fn find_repeating_pattern_in_shape(s: &mut SolverState, i: usize) -> Res<()> {
         }
     }
     Err(err!("no repeating pattern found"))
+}
+
+fn tile_shape(shape: &Shape, shape_w: i32, shape_h: i32, image_w: i32, image_h: i32) -> Res<Shape> {
+    let p = shape.crop(0, 0, shape_w, shape_h)?;
+    let p1 = p.tile(shape_w, shape.bb.right, shape_h, shape.bb.bottom)?;
+    if p1 != *shape {
+        return Err(err!("not matching"));
+    }
+    p.tile(shape_w, image_w, shape_h, image_h)
 }
 
 fn use_output_size(s: &mut SolverState) -> Res<()> {
@@ -881,7 +886,7 @@ fn pick_bottom_right_shape_per_color(s: &mut SolverState, i: usize) -> Res<()> {
         let shape = shapes
             .iter()
             .filter(|shape| shape.color() == *color)
-            .max_by_key(|shape| shape.bounding_box().bottom_right());
+            .max_by_key(|shape| shape.bb.bottom_right());
         if let Some(shape) = shape {
             new_shapes.push(shape.clone());
         }
@@ -1254,8 +1259,8 @@ fn repeat_shapes_vertically(s: &mut SolverState, i: usize) -> Res<()> {
     let (width, height) = s.width_and_height(i);
     let shapes = &mut s.shapes[i];
     for shape in shapes {
-        let bb = shape.bounding_box();
-        *shape = shape.tile(0, width, bb.height(), height).into();
+        let bb = shape.bb;
+        *shape = shape.tile(0, width, bb.height(), height)?.into();
     }
     Ok(())
 }
@@ -1264,8 +1269,8 @@ fn repeat_shapes_horizontally(s: &mut SolverState, i: usize) -> Res<()> {
     let (width, height) = s.width_and_height(i);
     let shapes = &mut s.shapes[i];
     for shape in shapes {
-        let bb = shape.bounding_box();
-        *shape = shape.tile(bb.width(), width, 0, height).into();
+        let bb = shape.bb;
+        *shape = shape.tile(bb.width(), width, 0, height)?.into();
     }
     Ok(())
 }
@@ -1387,7 +1392,7 @@ fn restore_grid(s: &mut SolverState) -> Res<()> {
 fn connect_aligned_pixels_in_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let mut new_image = (*s.images[i]).clone();
     for shape in &s.shapes[i] {
-        let bb = shape.bounding_box();
+        let bb = shape.bb;
         let shape_as_image = shape.as_image();
         for cell in &shape.cells {
             for dir in tools::DIRECTIONS4 {
@@ -1579,7 +1584,7 @@ fn number_sequence_to_shapes(s: &mut SolverState, i: usize) -> Res<()> {
             .get(index as usize)
             .ok_or(err!("no shape for index"))?
             .move_by(tools::Vec2 { x: next_x, y: 0 });
-        next_x += shape.bounding_box().width();
+        next_x += shape.bb.width();
         shapes.push(shape.into());
     }
     s.shapes[i] = shapes;
