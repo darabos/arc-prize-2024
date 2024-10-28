@@ -671,7 +671,7 @@ impl PartialEq for Shape {
 impl Eq for Shape {}
 
 pub fn reverse_colors(colors: &[i32]) -> Vec<i32> {
-    let mut reverse_colors = vec![-1; colors.len()];
+    let mut reverse_colors = vec![-1; COLORS.len()];
     for (i, &color) in colors.iter().enumerate() {
         reverse_colors[color as usize] = i as i32;
     }
@@ -898,6 +898,21 @@ pub fn get_used_colors(images: &[Rc<Image>]) -> Vec<i32> {
         }
     }
     used_colors
+}
+
+pub fn add_remaining_colors(colors: &[i32]) -> Vec<i32> {
+    let mut is_used = vec![false; COLORS.len()];
+    for &color in colors {
+        is_used[color as usize] = true;
+    }
+    let mut all_colors = Vec::with_capacity(COLORS.len());
+    all_colors.extend_from_slice(colors);
+    for color in 0..COLORS.len() {
+        if !is_used[color] {
+            all_colors.push(color as i32);
+        }
+    }
+    all_colors
 }
 
 pub fn scale_up_image(image: &Image, ratio: Vec2) -> Image {

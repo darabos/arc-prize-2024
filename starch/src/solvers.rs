@@ -65,21 +65,42 @@ fn get_firsts<T>(vec: &Vec<Vec<T>>) -> Res<Vec<&T>> {
 
 fn grow_flowers(s: &mut SolverState) -> Res<()> {
     must_not_be_empty!(&s.output_images);
-    let dots = get_firsts(&s.shapes)?;
-    // let input_pattern = find_pattern_around(&s.images[..s.task.train.len()], &dots);
-    let mut output_pattern = tools::find_pattern_around(&s.output_images, &dots)?;
+    // It's okay for some images to not have dots.
+    let indexes: Vec<usize> = s
+        .shapes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, shapes)| {
+            if shapes.is_empty() || i >= s.output_images.len() {
+                None
+            } else {
+                Some(i)
+            }
+        })
+        .collect();
+    if indexes.is_empty() {
+        return Err(err!("no dots"));
+    }
+    let dots: Vec<&Rc<Shape>> = indexes.iter().map(|&i| &s.shapes[i][0]).collect();
+    let output_images: Vec<Rc<Image>> = indexes
+        .iter()
+        .map(|&i| &s.output_images[i])
+        .cloned()
+        .collect();
+    let mut output_pattern = tools::find_pattern_around(&output_images, &dots)?;
     output_pattern.use_relative_colors(&tools::reverse_colors(&s.colors[0]));
     // TODO: Instead of growing each dot, we should filter by the input_pattern.
     s.apply(|s: &mut SolverState, i: usize| {
-        let dots = &s.shapes[i][0];
         let mut new_image = (*s.images[i]).clone();
-        for dot in dots.cells.iter() {
-            tools::draw_shape_with_relative_colors_at(
-                &mut new_image,
-                &output_pattern,
-                &s.colors[i],
-                &dot.pos(),
-            );
+        for dots in &s.shapes[i] {
+            for dot in dots.cells.iter() {
+                tools::draw_shape_with_relative_colors_at(
+                    &mut new_image,
+                    &output_pattern,
+                    &s.colors[i],
+                    &dot.pos(),
+                );
+            }
         }
         s.images[i] = Rc::new(new_image);
         Ok(())
@@ -167,7 +188,7 @@ type NumberSequencesPerExample = Vec<NumberSequence>;
 #[derive(Default, Clone)]
 pub struct SubState {
     state: SolverState,
-    image_index: usize,
+    image_indexes: Vec<usize>,
 }
 
 /// Tracks information while applying operations on all examples at once.
@@ -198,6 +219,7 @@ pub struct SolverState {
     pub steps: Vec<&'static SolverStep>,
     // Steps to be done at the end. (In get_results().)
     pub finishing_steps: Vec<Rc<Box<dyn Fn(&mut SolverState) -> Res<()>>>>,
+    pub is_substate: bool,
 }
 
 impl SolverState {
@@ -225,8 +247,6 @@ impl SolverState {
 
     fn init_from_images(&mut self, images: ImagePerExample) {
         self.images = images;
-        let all_colors: ColorList = (0..COLORS.len() as i32).collect();
-        self.colors = self.images.iter().map(|_| all_colors.clone()).collect();
         self.colorsets = self
             .images
             .iter()
@@ -259,16 +279,18 @@ impl SolverState {
                 tools::discard_background_shapes_touching_border(image, shapes.clone())
             })
             .collect();
+        let all_colors: ColorList = (0..COLORS.len() as i32).collect();
+        self.colors = self.images.iter().map(|_| all_colors.clone()).collect();
         for s in &mut self.shapes {
             s.sort_by_key(|shape| shape.color());
         }
+        self.apply(order_colors_by_shapes).unwrap();
         self.saved_shapes = vec![self.shapes.clone()];
         self.lines = self
             .images
             .iter()
             .map(|image| Rc::new(tools::find_lines_in_image(image)))
             .collect();
-        self.apply(order_colors_by_shapes).unwrap();
     }
 
     pub fn validate(&self) -> Res<()> {
@@ -428,7 +450,7 @@ impl SolverState {
     pub fn substate_per_image(&self) -> Vec<SubState> {
         (0..self.images.len())
             .map(|i| SubState {
-                image_index: i,
+                image_indexes: vec![i],
                 state: SolverState {
                     task: self.task.clone(),
                     images: vec![self.images[i].clone()],
@@ -466,9 +488,20 @@ impl SolverState {
                     substates: None,
                     steps: vec![],
                     finishing_steps: vec![],
+                    is_substate: true,
                 },
             })
             .collect()
+    }
+
+    /// A substate that is the same as this state. It carries all images.
+    pub fn substate(&self) -> SubState {
+        let mut state = self.clone();
+        state.is_substate = true;
+        SubState {
+            image_indexes: (0..self.images.len()).collect(),
+            state,
+        }
     }
 
     pub fn run_steps(&mut self, steps: &'static [SolverStep]) -> Res<()> {
@@ -494,39 +527,23 @@ impl SolverState {
     pub fn run_step(&mut self, step: &'static SolverStep) -> Res<()> {
         self.steps.push(step);
         if let Some(substates) = &mut self.substates {
-            if matches!(step, SolverStep::ForEachShape) {
-                return Err(err!("ForEachShape not allowed in substates"));
-            }
             for substate in substates {
                 let state = &mut substate.state;
-                state.images = vec![self.images[substate.image_index].clone()];
+                state.images = substate
+                    .image_indexes
+                    .iter()
+                    .map(|&i| self.images[i].clone())
+                    .collect();
                 state.run_step(&step)?;
-                self.images[substate.image_index] = state.images[0].clone();
+                for (i, &image_index) in substate.image_indexes.iter().enumerate() {
+                    self.images[image_index] = state.images[i].clone();
+                }
             }
             return Ok(());
         }
         match step {
             SolverStep::Each(_name, f) => self.apply(f)?,
             SolverStep::All(_name, f) => f(self)?,
-            SolverStep::ForEachShape => {
-                if self.shapes.iter().any(|shapes| shapes.len() > 10) {
-                    return Err(err!("too many shapes"));
-                }
-                self.substates = Some(
-                    self.substate_per_image()
-                        .into_iter()
-                        .map(|mut s| {
-                            let shapes = std::mem::take(&mut s.state.shapes[0]);
-                            shapes.into_iter().map(move |shape| {
-                                let mut state = s.state.clone();
-                                state.shapes = vec![vec![shape.clone()]];
-                                SubState { state, ..s }
-                            })
-                        })
-                        .flatten()
-                        .collect(),
-                )
-            }
         }
         Ok(())
     }
@@ -566,6 +583,55 @@ fn print_images_step(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+fn substates_for_each_shape(s: &mut SolverState) -> Res<()> {
+    if s.is_substate {
+        return Err(err!("already split into substates"));
+    }
+    if s.shapes.iter().any(|shapes| shapes.len() > 10) {
+        return Err(err!("too many shapes"));
+    }
+    s.substates = Some(
+        s.substate_per_image()
+            .into_iter()
+            .map(|mut s| {
+                let shapes = std::mem::take(&mut s.state.shapes[0]);
+                shapes.into_iter().map(move |shape| {
+                    let mut state = s.state.clone();
+                    state.shapes = vec![vec![shape.clone()]];
+                    SubState {
+                        state,
+                        image_indexes: s.image_indexes.clone(),
+                    }
+                })
+            })
+            .flatten()
+            .collect(),
+    );
+    Ok(())
+}
+
+fn substates_for_each_color(s: &mut SolverState) -> Res<()> {
+    if s.is_substate {
+        return Err(err!("already split into substates"));
+    }
+    let used_colors = tools::get_used_colors(&s.images);
+    if used_colors.is_empty() {
+        return Err(err!("no colors"));
+    }
+    s.substates = Some(
+        used_colors
+            .into_iter()
+            .map(|color| {
+                let mut substate = s.substate();
+                substate.state.colors =
+                    vec![tools::add_remaining_colors(&vec![color]); s.images.len()];
+                substate
+            })
+            .collect(),
+    );
+    Ok(())
+}
+
 fn use_next_color(s: &mut SolverState, i: usize) -> Res<()> {
     let first_color = s.colors[i][0];
     let n = COLORS.len();
@@ -594,7 +660,6 @@ fn filter_shapes_by_color(s: &mut SolverState, i: usize) -> Res<()> {
         .filter(|shape| shape.color() == *color)
         .cloned()
         .collect();
-    must_not_be_empty!(&s.shapes[i]);
     Ok(())
 }
 
@@ -1634,7 +1699,6 @@ fn number_sequence_to_shapes(s: &mut SolverState, i: usize) -> Res<()> {
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
-    ForEachShape,
 }
 macro_rules! step_all {
     ($func:ident) => {
@@ -1652,23 +1716,22 @@ impl std::fmt::Display for SolverStep {
         match self {
             Each(name, _func) => write!(f, "{}", name),
             All(name, _func) => write!(f, "{}", name),
-            ForEachShape => write!(f, "ForEachShape"),
         }
     }
 }
 pub const ALL_STEPS: &[SolverStep] = &[
-    ForEachShape,
     step_all!(allow_background_color_shapes),
     // step_all!(grow_flowers),
     step_all!(load_shapes_except_current_shapes),
+    step_all!(move_shapes_per_output_shapes),
     step_all!(move_shapes_per_output),
     step_all!(recolor_image_per_output),
     step_all!(recolor_shapes_per_output),
     step_all!(refresh_from_image),
     step_all!(repeat_shapes_on_lattice_per_output),
     step_all!(restore_grid),
-    step_all!(rotate_to_landscape_cw),
     step_all!(rotate_to_landscape_ccw),
+    step_all!(rotate_to_landscape_cw),
     step_all!(save_first_shape_use_the_rest),
     step_all!(save_shapes_and_load_previous),
     step_all!(scale_up_image_add_grid),
@@ -1678,6 +1741,8 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(select_grid_cell_outlier_by_color),
     step_all!(solve_number_sequence),
     step_all!(split_into_two_images),
+    step_all!(substates_for_each_color),
+    step_all!(substates_for_each_shape),
     step_all!(use_colorsets_as_shapes),
     step_all!(use_output_size),
     step_each!(allow_diagonals_in_shapes),
@@ -1686,27 +1751,26 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(boolean_with_saved_image_xor),
     step_each!(connect_aligned_pixels_in_shapes),
     step_each!(delete_background_shapes),
+    step_each!(delete_shapes_touching_border),
     step_each!(draw_shape_where_non_empty),
     step_each!(draw_shapes),
     step_each!(filter_shapes_by_color),
     step_each!(find_repeating_pattern_in_shape),
-    step_each!(delete_shapes_touching_border),
     step_each!(move_saved_shape_to_cover_current_shape_max),
     step_each!(move_shapes_to_touch_saved_shape),
-    step_each!(pick_bottom_right_shape),
-    step_all!(move_shapes_per_output_shapes),
     step_each!(number_sequence_to_shapes),
     step_each!(order_colors_by_shapes),
+    step_each!(order_shapes_by_color),
     step_each!(order_shapes_by_size_decreasing),
     step_each!(order_shapes_by_size_increasing),
     step_each!(order_shapes_from_left_to_right),
-    step_each!(order_shapes_by_color),
     step_each!(pick_bottom_right_shape_per_color),
+    step_each!(pick_bottom_right_shape),
     step_each!(recolor_saved_shapes_to_current_shape),
     step_each!(remove_grid),
     step_each!(repeat_last_move_and_draw),
-    step_each!(repeat_shapes_vertically),
     step_each!(repeat_shapes_horizontally),
+    step_each!(repeat_shapes_vertically),
     step_each!(shapes_to_number_sequence),
     step_each!(tile_shapes_after_scale_up),
     step_each!(use_image_as_shape),
@@ -1749,7 +1813,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(delete_background_shapes),
         step_each!(order_shapes_by_size_decreasing),
         step_all!(save_first_shape_use_the_rest),
-        ForEachShape,
+        step_all!(substates_for_each_shape),
         step_each!(recolor_saved_shapes_to_current_shape),
         step_each!(move_saved_shape_to_cover_current_shape_max),
         step_each!(repeat_last_move_and_draw),
@@ -1797,6 +1861,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(use_colorsets_as_shapes),
         step_each!(order_shapes_by_size_increasing),
         step_each!(order_colors_by_shapes),
+        step_each!(filter_shapes_by_color),
         step_all!(grow_flowers),
     ],
     &[
@@ -1814,6 +1879,13 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // 13
         step_all!(select_grid_cell_outlier_by_color),
+    ],
+    &[
+        // 14
+        step_all!(use_colorsets_as_shapes),
+        step_all!(substates_for_each_color),
+        step_each!(filter_shapes_by_color),
+        step_all!(grow_flowers),
     ],
     &[
         // 71
