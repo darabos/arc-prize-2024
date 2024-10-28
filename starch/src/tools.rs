@@ -411,6 +411,14 @@ impl Shape {
     }
 
     #[must_use]
+    pub fn if_not_empty(cells: Vec<Pixel>) -> Res<Shape> {
+        if cells.is_empty() {
+            return Err("empty");
+        }
+        Ok(Shape::new(cells))
+    }
+
+    #[must_use]
     pub fn color_at(&self, x: i32, y: i32) -> Option<i32> {
         for Pixel {
             x: px,
@@ -525,10 +533,7 @@ impl Shape {
                 }
             }
         }
-        if new_cells.is_empty() {
-            return Err("empty");
-        }
-        Ok(Shape::new(new_cells))
+        Shape::if_not_empty(new_cells)
     }
 
     #[must_use]
@@ -543,10 +548,7 @@ impl Shape {
                 });
             }
         }
-        if new_cells.is_empty() {
-            return Err("empty");
-        }
-        Ok(Shape::new(new_cells))
+        Shape::if_not_empty(new_cells)
     }
 
     pub fn draw_where_non_empty(&self, image: &mut Image) {
@@ -820,7 +822,7 @@ pub fn measure_boxes_with_radius(image: &Image, dots: &Shape, radius: i32) -> us
     count
 }
 
-pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
+pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Res<Shape> {
     let mut cells = vec![];
     for dx in -radius..=radius {
         for dy in -radius..=radius {
@@ -836,10 +838,10 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Shape {
             }
         }
     }
-    Shape::new(cells)
+    Shape::if_not_empty(cells)
 }
 
-pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Shape {
+pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
     // TODO: This is slow. Limit radius? Build pattern incrementally?
     let mut radius = 0;
     let mut last_measure = 0;

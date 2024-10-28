@@ -115,8 +115,8 @@ fn evaluate_automatic_solver() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     let mut correct = 0;
-    let debug = "0a938d79";
-    // let debug = "";
+    // let debug = "0a938d79";
+    let debug = "";
     let tasks: Vec<(String, Task)> = if debug == "" {
         tasks //.into_iter().skip(30).collect()
     } else {
@@ -165,7 +165,8 @@ fn evaluate_automatic_solver() {
 fn evaluate_manual_solvers() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
-    let mut correct = 0;
+    let mut expected_correct: Vec<&str> = "007bbfb7 00d62c1b 025d127b 045e512c 0520fde7 05269061 05f2a901 06df4c85 08ed6ac7 09629e4f 0962bcdd 0a938d79 3428a4f5 8403a5d5 99b1bc43 a5313dff b1948b0a ce4f8723 ea32f347".split(" ").collect();
+    let mut correct: Vec<colored::ColoredString> = vec![];
     // let debug = (12, "0a938d79");
     let debug = (-1, "");
     let tasks: Vec<(String, Task)> = if debug.0 < 0 {
@@ -218,13 +219,25 @@ fn evaluate_manual_solvers() {
                 println!("{}: {}", name, "Correct".green());
             }
             if all_correct {
-                correct += 1;
+                if let Some(e) = expected_correct.iter().position(|&x| x == name) {
+                    correct.push(name.white());
+                    expected_correct.remove(e);
+                } else {
+                    correct.push(name.green());
+                }
                 break;
             }
         }
     }
     bar.finish();
-    println!("Correct: {}/{}", correct, tasks.len());
+    println!("Correct: {}/{}", correct.len(), tasks.len());
+    for c in correct {
+        print!("{} ", c);
+    }
+    println!("");
+    if !expected_correct.is_empty() {
+        println!("Expected correct: {}", expected_correct.join(" ").red());
+    }
 }
 
 fn main() {

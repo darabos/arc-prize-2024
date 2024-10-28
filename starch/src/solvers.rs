@@ -67,7 +67,7 @@ fn grow_flowers(s: &mut SolverState) -> Res<()> {
     must_not_be_empty!(&s.output_images);
     let dots = get_firsts(&s.shapes)?;
     // let input_pattern = find_pattern_around(&s.images[..s.task.train.len()], &dots);
-    let mut output_pattern = tools::find_pattern_around(&s.output_images, &dots);
+    let mut output_pattern = tools::find_pattern_around(&s.output_images, &dots)?;
     output_pattern.use_relative_colors(&tools::reverse_colors(&s.colors[0]));
     // TODO: Instead of growing each dot, we should filter by the input_pattern.
     s.apply(|s: &mut SolverState, i: usize| {
