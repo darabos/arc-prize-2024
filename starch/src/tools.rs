@@ -288,7 +288,12 @@ pub fn find_horizontal_lines_in_image(image: &Image) -> Lines {
             }
         }
         match lines.last_mut() {
-            Some(last_line) if last_line.color == color => last_line.width += 1,
+            Some(last_line)
+                if last_line.pos == y as i32 - last_line.width as i32
+                    && last_line.color == color =>
+            {
+                last_line.width += 1
+            }
             _ => lines.push(Line {
                 pos: y as i32,
                 width: 1,
@@ -308,7 +313,12 @@ pub fn find_vertical_lines_in_image(image: &Image) -> Lines {
             }
         }
         match lines.last_mut() {
-            Some(last_line) if last_line.color == color => last_line.width += 1,
+            Some(last_line)
+                if last_line.pos == x as i32 - last_line.width as i32
+                    && last_line.color == color =>
+            {
+                last_line.width += 1
+            }
             _ => lines.push(Line {
                 pos: x as i32,
                 width: 1,

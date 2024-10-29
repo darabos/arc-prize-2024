@@ -1391,19 +1391,28 @@ fn repeat_shapes_horizontally(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
-/// Deletes the lines. Instead of erasing them, we completely remove them from the image.
+/// Deletes the lines. We don't erase them -- we completely remove them from the image.
 fn remove_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &*s.images[i];
     let mut new_image = vec![];
     let lines = &s.lines[i].horizontal;
     let mut line_i = 0;
     let (_width, height) = s.width_and_height(i);
-    for y in 0..height {
-        if line_i < lines.len() && y == lines[line_i].pos {
-            line_i += 1;
-        } else {
-            new_image.push(image[y as usize].clone());
+    'y: for y in 0..height {
+        while line_i < lines.len() {
+            let li = &lines[line_i];
+            if li.pos + li.width as i32 <= y {
+                // We are past the line. Look at the next line.
+                line_i += 1;
+            } else if li.pos <= y {
+                // We are inside the line. Drop this row.
+                continue 'y;
+            } else {
+                // We are before the line. Keep this row.
+                break;
+            }
         }
+        new_image.push(image[y as usize].clone());
     }
     if new_image.len() == 0 {
         return Err(err!("nothing left"));
@@ -1420,12 +1429,21 @@ fn remove_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
     for y in 0..height {
         let mut row = vec![];
         let mut line_i = 0;
-        for x in 0..width {
-            if line_i < lines.len() && x == lines[line_i].pos {
-                line_i += 1;
-            } else {
-                row.push(image[y as usize][x as usize]);
+        'x: for x in 0..width {
+            while line_i < lines.len() {
+                let li = &lines[line_i];
+                if li.pos + li.width as i32 <= x {
+                    // We are past the line. Look at the next line.
+                    line_i += 1;
+                } else if li.pos <= x {
+                    // We are inside the line. Drop this pixel.
+                    continue 'x;
+                } else {
+                    // We are before the line. Keep this pixel.
+                    break;
+                }
             }
+            row.push(image[y as usize][x as usize]);
         }
         if row.len() == 0 {
             return Err(err!("nothing left"));
@@ -2132,6 +2150,15 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_or),
         step_all!(recolor_image_per_output),
+    ],
+    &[
+        // ded97339
+        step_all!(use_colorsets_as_shapes),
+        step_each!(connect_aligned_pixels_in_shapes),
+    ],
+    &[
+        // 1cf80156
+        step_each!(remove_grid),
     ],
     &[
         // unused
