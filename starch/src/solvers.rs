@@ -1779,13 +1779,15 @@ impl std::fmt::Display for SolverStep {
 }
 pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(allow_background_color_shapes),
-    // step_all!(grow_flowers),
+    step_all!(grow_flowers),
     step_all!(load_shapes_except_current_shapes),
     step_all!(move_shapes_per_output_shapes),
     step_all!(move_shapes_per_output),
     step_all!(recolor_image_per_output),
     step_all!(recolor_shapes_per_output),
     step_all!(refresh_from_image),
+    step_all!(remap_colors_per_output),
+    step_all!(repeat_shapes_on_lattice_per_image),
     step_all!(repeat_shapes_on_lattice_per_output),
     step_all!(restore_grid),
     step_all!(rotate_to_landscape_ccw),
@@ -1967,5 +1969,16 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_or),
         step_all!(recolor_image_per_output),
+    ],
+    &[
+        // unused
+        step_each!(delete_shapes_touching_border),
+        step_each!(order_shapes_by_color),
+        step_each!(order_shapes_from_left_to_right),
+        step_each!(pick_bottom_right_shape),
+        step_all!(move_shapes_per_output_shapes),
+        step_each!(repeat_shapes_horizontally),
+        step_all!(select_grid_cell_most_filled_in),
+        step_all!(rotate_to_landscape_cw),
     ],
 ];

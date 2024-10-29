@@ -461,6 +461,10 @@ impl Shape {
             *x += vector.x;
             *y += vector.y;
         }
+        self.bb.top += vector.y;
+        self.bb.bottom += vector.y;
+        self.bb.left += vector.x;
+        self.bb.right += vector.x;
     }
     pub fn restore_from(&mut self, other: &Shape) {
         for (a, b) in self.cells.iter_mut().zip(&other.cells) {
@@ -468,6 +472,7 @@ impl Shape {
             a.y = b.y;
             a.color = b.color;
         }
+        self.bb = other.bb;
     }
     /// Returns true if the shape matches the image at the given position.
     /// Returns false if the shape is entirely out of bounds.
