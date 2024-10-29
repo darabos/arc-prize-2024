@@ -916,7 +916,7 @@ pub fn place_shape(image: &Image, shape: &Shape) -> Res<ShapePlacement> {
         }
     }
     if best_placement.match_count == 0 {
-        return Err("no match");
+        return Err("no match in place_shape");
     }
     Ok(best_placement)
 }
@@ -977,10 +977,6 @@ pub fn get_pattern_in_rect(
                         if agreement == -1 {
                             agreement = color;
                         } else if agreement != color {
-                            // println!(
-                            //     "disagreement in {} {}!={} at {} {} ({} {})",
-                            //     i, agreement, color, nx, ny, dx, dy
-                            // );
                             agreement = -1;
                             break 'images;
                         }

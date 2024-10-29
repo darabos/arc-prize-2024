@@ -1020,6 +1020,12 @@ fn allow_diagonals_in_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     s.shapes[i] = shapes;
     Ok(())
 }
+fn allow_diagonals_in_multicolor_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    let mut shapes = tools::find_multicolor_shapes_in_image(&s.images[i], &tools::DIRECTIONS8);
+    shapes = tools::discard_background_shapes_touching_border(&s.images[i], shapes);
+    s.shapes[i] = shapes;
+    Ok(())
+}
 
 fn delete_background_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes[i];
@@ -1913,6 +1919,7 @@ fn place_shapes_best_match_with_all_transforms(s: &mut SolverState, i: usize) ->
             .iter()
             .map(|shape| tools::place_shape(image, shape))
             .enumerate()
+            .rev()
             .max_by_key(|(_i, place)| place.as_ref().map(|p| p.match_count).unwrap_or(0))
             .unwrap();
         let place = place?;
@@ -2070,6 +2077,28 @@ fn deduplicate_vertically(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+fn make_common_output_image(s: &mut SolverState) -> Res<()> {
+    let (width, height) = s.output_width_and_height_all()?;
+    let mut new_output_image = vec![];
+    for y in 0..height as usize {
+        let mut row = vec![];
+        for x in 0..width as usize {
+            let mut c = s.output_images[0][y][x];
+            for i in 1..s.output_images.len() {
+                if c != s.output_images[i][y][x] {
+                    c = 0;
+                    break;
+                }
+            }
+            row.push(c);
+        }
+        new_output_image.push(row);
+    }
+    let new_output_image: Rc<Image> = new_output_image.into();
+    s.images = s.images.iter().map(|_| new_output_image.clone()).collect();
+    Ok(())
+}
+
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
@@ -2102,6 +2131,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(allow_background_color_shapes),
     step_all!(grow_flowers_square),
     step_all!(load_shapes_except_current_shapes),
+    step_all!(make_common_output_image),
     step_all!(move_shapes_per_output_shapes),
     step_all!(move_shapes_per_output),
     step_all!(recolor_image_per_output),
@@ -2132,6 +2162,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(use_output_size),
     step_all!(use_relative_colors),
     step_each!(allow_diagonals_in_shapes),
+    step_each!(allow_diagonals_in_multicolor_shapes),
     step_each!(boolean_with_saved_image_and),
     step_each!(boolean_with_saved_image_or),
     step_each!(boolean_with_saved_image_xor),
@@ -2320,6 +2351,13 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(deduplicate_vertically),
         step_all!(refresh_from_image),
         step_all!(remove_grid),
+    ],
+    &[
+        // 21
+        step_each!(allow_diagonals_in_multicolor_shapes),
+        step_all!(make_common_output_image),
+        step_each!(place_shapes_best_match_with_just_translation),
+        step_each!(draw_shapes),
     ],
     &[
         // 71
