@@ -63,7 +63,20 @@ fn get_firsts<T>(vec: &Vec<Vec<T>>) -> Res<Vec<&T>> {
     Ok(firsts)
 }
 
-fn grow_flowers(s: &mut SolverState) -> Res<()> {
+fn grow_flowers_square(s: &mut SolverState) -> Res<()> {
+    grow_flowers(s, tools::find_pattern_in_square)
+}
+fn grow_flowers_horizontally(s: &mut SolverState) -> Res<()> {
+    grow_flowers(s, tools::find_pattern_horizontally)
+}
+fn grow_flowers_vertically(s: &mut SolverState) -> Res<()> {
+    grow_flowers(s, tools::find_pattern_vertically)
+}
+
+fn grow_flowers<F>(s: &mut SolverState, func: F) -> Res<()>
+where
+    F: Fn(&[Rc<Image>], &[&Rc<Shape>]) -> Res<Shape>,
+{
     must_not_be_empty!(&s.output_images);
     // It's okay for some images to not have dots.
     let indexes: Vec<usize> = s
@@ -87,7 +100,7 @@ fn grow_flowers(s: &mut SolverState) -> Res<()> {
         .map(|&i| &s.output_images[i])
         .cloned()
         .collect();
-    match tools::find_pattern_around(&output_images, &dots) {
+    match func(&output_images, &dots) {
         Ok(pattern) => s.apply(|s: &mut SolverState, i: usize| {
             let mut new_image = (*s.images[i]).clone();
             for dots in &s.shapes[i] {
@@ -1895,7 +1908,7 @@ impl std::fmt::Display for SolverStep {
 }
 pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(allow_background_color_shapes),
-    step_all!(grow_flowers),
+    step_all!(grow_flowers_square),
     step_all!(load_shapes_except_current_shapes),
     step_all!(move_shapes_per_output_shapes),
     step_all!(move_shapes_per_output),
@@ -1920,6 +1933,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(substates_for_each_color),
     step_all!(substates_for_each_image),
     step_all!(substates_for_each_shape),
+    step_all!(tile_image),
     step_all!(use_colorsets_as_shapes),
     step_all!(use_multicolor_shapes),
     step_all!(use_output_size),
@@ -2045,7 +2059,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(order_colors_by_shapes),
         step_all!(use_relative_colors),
         step_each!(filter_shapes_by_color),
-        step_all!(grow_flowers),
+        step_all!(grow_flowers_square),
     ],
     &[
         // 12
@@ -2068,7 +2082,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(use_colorsets_as_shapes),
         step_all!(substates_for_each_color),
         step_each!(filter_shapes_by_color),
-        step_all!(grow_flowers),
+        step_all!(grow_flowers_square),
     ],
     &[
         // 15
@@ -2089,11 +2103,11 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(draw_shapes),
     ],
     &[
-        // 17
+        // 18
         step_all!(tile_image),
         step_all!(refresh_from_image),
         step_all!(use_colorsets_as_shapes),
-        step_all!(grow_flowers),
+        step_all!(grow_flowers_square),
     ],
     &[
         // 71

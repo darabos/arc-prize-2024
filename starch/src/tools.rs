@@ -930,19 +930,25 @@ pub fn set_in_image(image: &mut Image, x: i32, y: i32, color: i32) {
     }
     image[y as usize][x as usize] = color;
 }
-
 pub fn get_pattern_with_radius(
     images: &[Rc<Image>],
     dots: &[&Rc<Shape>],
     radius: i32,
 ) -> Res<Shape> {
-    // println!("get_pattern_with_radius {}", radius);
-    // for image in images {
-    //     print_image(image);
-    // }
+    get_pattern_in_rect(images, dots, -radius, radius, -radius, radius)
+}
+
+pub fn get_pattern_in_rect(
+    images: &[Rc<Image>],
+    dots: &[&Rc<Shape>],
+    min_dx: i32,
+    max_dx: i32,
+    min_dy: i32,
+    max_dy: i32,
+) -> Res<Shape> {
     let mut cells = vec![];
-    for dx in -radius..=radius {
-        for dy in -radius..=radius {
+    for dx in min_dx..=max_dx {
+        for dy in min_dy..=max_dy {
             let mut agreement = -1;
             'images: for i in 0..images.len() {
                 let image = &images[i];
@@ -983,9 +989,9 @@ pub fn get_pattern_with_radius(
     Shape::if_not_empty(cells)
 }
 
-pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
+pub fn find_pattern_in_square(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
     let mut last_pattern: Option<Shape> = None;
-    for radius in 1..4 {
+    for radius in 1..images[0].len() as i32 {
         let p = get_pattern_with_radius(&images, &dots, radius)?;
         if let Some(last_pattern) = last_pattern {
             // No improvement. We're done.
@@ -995,7 +1001,37 @@ pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Sha
         }
         last_pattern = Some(p);
     }
-    Ok(last_pattern.unwrap())
+    last_pattern.ok_or("image too small")
+}
+
+pub fn find_pattern_horizontally(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
+    let mut last_pattern: Option<Shape> = None;
+    for radius in 1..images[0][0].len() as i32 {
+        let p = get_pattern_in_rect(&images, &dots, -radius, radius, 0, 0)?;
+        if let Some(last_pattern) = last_pattern {
+            // No improvement. We're done.
+            if p.cells.len() <= last_pattern.cells.len() {
+                return Ok(last_pattern);
+            }
+        }
+        last_pattern = Some(p);
+    }
+    last_pattern.ok_or("image too small")
+}
+
+pub fn find_pattern_vertically(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
+    let mut last_pattern: Option<Shape> = None;
+    for radius in 1..images[0].len() as i32 {
+        let p = get_pattern_in_rect(&images, &dots, 0, 0, -radius, radius)?;
+        if let Some(last_pattern) = last_pattern {
+            // No improvement. We're done.
+            if p.cells.len() <= last_pattern.cells.len() {
+                return Ok(last_pattern);
+            }
+        }
+        last_pattern = Some(p);
+    }
+    last_pattern.ok_or("image too small")
 }
 
 pub fn draw_shape_at(image: &mut Image, shape: &Shape, pos: Vec2) {
