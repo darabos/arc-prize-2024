@@ -84,7 +84,8 @@ where
         .iter()
         .enumerate()
         .filter_map(|(i, shapes)| {
-            if shapes.is_empty() || i >= s.output_images.len() {
+            let dots: usize = shapes.iter().map(|shape| shape.cells.len()).sum();
+            if i >= s.output_images.len() || dots == 0 || dots > 5 {
                 None
             } else {
                 Some(i)
@@ -1436,6 +1437,7 @@ fn remove_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn remove_grid(s: &mut SolverState, i: usize) -> Res<()> {
+    // TODO: Kinda slow. Not all lines are a grid. Error out if the lines don't make a grid.
     let (width, height) = s.width_and_height(i);
     if width < 3 && height < 3 {
         return Err(err!("image too small"));
@@ -1795,9 +1797,18 @@ pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
 /// then in image 1 purple will be mapped to red, and green will be mapped to blue.
 fn use_relative_colors(s: &mut SolverState) -> Res<()> {
     let mut new_images: ImagePerExample = vec![s.images[0].clone()];
+    let mut any_modified = false;
     for i in 1..s.images.len() {
-        new_images
-            .push(tools::map_colors_in_image(&s.images[i], &s.colors[i], &s.colors[0]).into());
+        if s.colors[i] == s.colors[0] {
+            new_images.push(s.images[i].clone());
+        } else {
+            any_modified = true;
+            new_images
+                .push(tools::map_colors_in_image(&s.images[i], &s.colors[i], &s.colors[0]).into());
+        }
+    }
+    if !any_modified {
+        return Err(err!("colors already uniform"));
     }
     let mut new_output_images: ImagePerExample = vec![];
     for i in 0..s.output_images.len() {
@@ -1844,6 +1855,7 @@ fn erase_shapes(s: &mut SolverState, i: usize) -> Res<()> {
 
 /// Finds the best placement for each shape so it lines up with the most most pixels in the image.
 fn place_shapes_best_match_with_all_transforms(s: &mut SolverState, i: usize) -> Res<()> {
+    // TODO: This is kinda slow. Find a way to error out when it's useless.
     let image = &s.images[i];
     let mut new_shapes = vec![];
     for shape in &s.shapes[i] {
