@@ -202,6 +202,7 @@ pub struct SolverState {
     pub colors: ColorListPerExample,
     pub shapes: ShapesPerExample,
     pub shapes_including_background: ShapesPerExample,
+    pub multicolor_shapes: ShapesPerExample,
     pub output_shapes: ShapesPerExample,
     pub output_shapes_including_background: ShapesPerExample,
     pub saved_shapes: Vec<ShapesPerExample>,
@@ -256,6 +257,11 @@ impl SolverState {
             .images
             .iter()
             .map(|image| tools::find_shapes_in_image(image, &tools::DIRECTIONS4))
+            .collect();
+        self.multicolor_shapes = self
+            .images
+            .iter()
+            .map(|image| tools::find_multicolor_shapes_in_image(image, &tools::DIRECTIONS4))
             .collect();
         self.output_shapes_including_background = self
             .output_images
@@ -462,6 +468,7 @@ impl SolverState {
                         .collect(),
                     colors: vec![self.colors[i].clone()],
                     shapes: vec![self.shapes[i].clone()],
+                    multicolor_shapes: vec![self.multicolor_shapes[i].clone()],
                     shapes_including_background: vec![self.shapes_including_background[i].clone()],
                     output_shapes: vec![],
                     output_shapes_including_background: vec![],
@@ -1054,7 +1061,7 @@ fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
                 for i in 0..s.images.len() {
                     let mut new_image = (*s.images[i]).clone();
                     for shape in &shapes[i] {
-                        tools::remove_shape(&mut new_image, shape);
+                        tools::erase_shape(&mut new_image, shape);
                         tools::draw_shape_at(&mut new_image, shape, offset);
                     }
                     s.images[i] = Rc::new(new_image);
@@ -1645,6 +1652,11 @@ fn allow_background_color_shapes(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+fn use_multicolor_shapes(s: &mut SolverState) -> Res<()> {
+    s.shapes = s.multicolor_shapes.clone();
+    Ok(())
+}
+
 fn shapes_to_number_sequence(s: &mut SolverState, i: usize) -> Res<()> {
     if i == 0 {
         s.number_sequences = vec![vec![]; s.images.len()];
@@ -1754,6 +1766,67 @@ pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+fn discard_small_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    let mut new_shapes = vec![];
+    for shape in &s.shapes[i] {
+        if shape.bb.width() > 1 && shape.bb.height() > 1 {
+            new_shapes.push(shape.clone());
+        }
+    }
+    s.shapes[i] = new_shapes;
+    Ok(())
+}
+
+fn erase_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    let mut image = (*s.images[i]).clone();
+    for shape in &s.shapes[i] {
+        tools::erase_shape(&mut image, shape);
+    }
+    s.images[i] = image.into();
+    Ok(())
+}
+
+/// Finds the best placement for each shape so it lines up with the most most pixels in the image.
+fn place_shapes_best_match_with_all_transforms(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    let mut new_shapes = vec![];
+    for shape in &s.shapes[i] {
+        let mut variations = vec![shape.clone()];
+        for _ in 0..3 {
+            variations.push(variations.last().unwrap().rotate_90_cw().into());
+        }
+        variations.push(variations.last().unwrap().flip_horizontal().into());
+        for _ in 0..4 {
+            variations.push(variations.last().unwrap().rotate_90_cw().into());
+        }
+        let (i, place) = variations
+            .iter()
+            .map(|shape| tools::place_shape(image, shape))
+            .enumerate()
+            .max_by_key(|(_i, place)| place.as_ref().map(|p| p.match_count).unwrap_or(0))
+            .unwrap();
+        let place = place?;
+        new_shapes.push(
+            variations[i]
+                .move_by(place.pos - variations[i].bb.top_left())
+                .into(),
+        );
+    }
+    s.shapes[i] = new_shapes;
+    Ok(())
+}
+
+fn place_shapes_best_match_with_just_translation(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    let mut new_shapes = vec![];
+    for shape in &s.shapes[i] {
+        let place = tools::place_shape(image, shape)?;
+        new_shapes.push(shape.move_by(place.pos - shape.bb.top_left()).into());
+    }
+    s.shapes[i] = new_shapes;
+    Ok(())
+}
+
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
@@ -1805,6 +1878,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(substates_for_each_image),
     step_all!(substates_for_each_shape),
     step_all!(use_colorsets_as_shapes),
+    step_all!(use_multicolor_shapes),
     step_all!(use_output_size),
     step_each!(allow_diagonals_in_shapes),
     step_each!(boolean_with_saved_image_and),
@@ -1813,8 +1887,10 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(connect_aligned_pixels_in_shapes),
     step_each!(delete_background_shapes),
     step_each!(delete_shapes_touching_border),
+    step_each!(discard_small_shapes),
     step_each!(draw_shape_where_non_empty),
     step_each!(draw_shapes),
+    step_each!(erase_shapes),
     step_each!(filter_shapes_by_color),
     step_each!(find_repeating_pattern_in_shape),
     step_each!(move_saved_shape_to_cover_current_shape_max),
@@ -1827,6 +1903,8 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(order_shapes_from_left_to_right),
     step_each!(pick_bottom_right_shape_per_color),
     step_each!(pick_bottom_right_shape),
+    step_each!(place_shapes_best_match_with_all_transforms),
+    step_each!(place_shapes_best_match_with_just_translation),
     step_each!(recolor_saved_shapes_to_current_shape),
     step_each!(remove_grid),
     step_each!(repeat_last_move_and_draw),
@@ -1959,6 +2037,14 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(repeat_shapes_on_lattice_per_image),
     ],
     &[
+        // 17
+        step_all!(use_multicolor_shapes),
+        step_each!(discard_small_shapes),
+        step_each!(erase_shapes),
+        step_each!(place_shapes_best_match_with_all_transforms),
+        step_each!(draw_shapes),
+    ],
+    &[
         // 71
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_xor),
@@ -1972,13 +2058,14 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     ],
     &[
         // unused
+        step_all!(move_shapes_per_output_shapes),
+        step_all!(rotate_to_landscape_cw),
+        step_all!(select_grid_cell_most_filled_in),
         step_each!(delete_shapes_touching_border),
         step_each!(order_shapes_by_color),
         step_each!(order_shapes_from_left_to_right),
         step_each!(pick_bottom_right_shape),
-        step_all!(move_shapes_per_output_shapes),
+        step_each!(place_shapes_best_match_with_just_translation),
         step_each!(repeat_shapes_horizontally),
-        step_all!(select_grid_cell_most_filled_in),
-        step_all!(rotate_to_landscape_cw),
     ],
 ];

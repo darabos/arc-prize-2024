@@ -147,6 +147,8 @@ pub fn resize_canvas(image: &Image, width: usize, height: usize) -> Image {
     new_image
 }
 
+/// Each shape is a single color. Includes color 0.
+#[must_use]
 pub fn find_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>> {
     let mut shapes = vec![];
     let mut visited = vec![vec![false; image[0].len()]; image.len()];
@@ -180,6 +182,55 @@ pub fn find_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>
                             x: nx,
                             y: ny,
                             color,
+                        });
+                    }
+                }
+                i += 1;
+            }
+            shapes.push(Rc::new(Shape::new(cells)));
+        }
+    }
+    shapes
+}
+
+/// Shapes can include different colors. Color 0 is the separator.
+#[must_use]
+pub fn find_multicolor_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>> {
+    let mut shapes = vec![];
+    let mut visited = vec![vec![false; image[0].len()]; image.len()];
+    for y in 0..image.len() {
+        for x in 0..image[0].len() {
+            if visited[y][x] {
+                continue;
+            }
+            let color = image[y][x];
+            if color == 0 {
+                continue;
+            }
+            let mut cells = vec![Pixel {
+                x: x as i32,
+                y: y as i32,
+                color,
+            }];
+            visited[y][x] = true;
+            let mut i = 0;
+            while i < cells.len() {
+                let Pixel { x, y, color: _ } = cells[i];
+                for dir in directions {
+                    let nx = x + dir.x;
+                    let ny = y + dir.y;
+                    if let Ok(nc) = lookup_in_image(image, nx, ny) {
+                        if nc == 0 {
+                            continue;
+                        }
+                        if visited[ny as usize][nx as usize] {
+                            continue;
+                        }
+                        visited[ny as usize][nx as usize] = true;
+                        cells.push(Pixel {
+                            x: nx,
+                            y: ny,
+                            color: nc,
                         });
                     }
                 }
@@ -660,6 +711,32 @@ impl Shape {
         }
         image
     }
+
+    #[must_use]
+    pub fn rotate_90_cw(&self) -> Shape {
+        let mut new_cells = vec![];
+        for Pixel { x, y, color } in &self.cells {
+            new_cells.push(Pixel {
+                x: -y,
+                y: *x,
+                color: *color,
+            });
+        }
+        Shape::new(new_cells)
+    }
+
+    #[must_use]
+    pub fn flip_horizontal(&self) -> Shape {
+        let mut new_cells = vec![];
+        for Pixel { x, y, color } in &self.cells {
+            new_cells.push(Pixel {
+                x: -x,
+                y: *y,
+                color: *color,
+            });
+        }
+        Shape::new(new_cells)
+    }
 }
 
 impl PartialEq for Shape {
@@ -714,7 +791,7 @@ pub fn crop_image(image: &Image, left: i32, top: i32, width: i32, height: i32) -
     new_image
 }
 
-pub fn remove_shape(image: &mut Image, shape: &Shape) {
+pub fn erase_shape(image: &mut Image, shape: &Shape) {
     paint_shape(image, &shape, 0)
 }
 /// Draws the shape in its original color.
@@ -767,7 +844,7 @@ pub fn move_shape_to_shape_in_direction(
         x: dir.x * distance,
         y: dir.y * distance,
     });
-    remove_shape(&mut new_image, to_move);
+    erase_shape(&mut new_image, to_move);
     draw_shape(&mut new_image, &moved);
     Ok(new_image)
 }
@@ -786,6 +863,42 @@ pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Sh
     }
     return move_shape_to_shape_in_direction(image, to_move, move_to, UP);
 }
+
+#[derive(Debug, Clone)]
+pub struct ShapePlacement {
+    pub pos: Vec2,
+    pub match_count: usize,
+}
+/// Finds the best placement with just translation.
+pub fn place_shape(image: &Image, shape: &Shape) -> Res<ShapePlacement> {
+    let mut best_placement = ShapePlacement {
+        pos: Vec2::ZERO,
+        match_count: 0,
+    };
+    for y in (-shape.bb.height() + 1)..image.len() as i32 {
+        for x in (-shape.bb.width() + 1)..image[0].len() as i32 {
+            let pos = Vec2 { x, y };
+            let mut match_count = 0;
+            for Pixel { x, y, color } in &shape.cells {
+                let ix = pos.x + x - shape.bb.left;
+                let iy = pos.y + y - shape.bb.top;
+                if let Ok(ic) = lookup_in_image(image, ix, iy) {
+                    if ic == *color {
+                        match_count += 1;
+                    }
+                }
+            }
+            if match_count > best_placement.match_count {
+                best_placement = ShapePlacement { pos, match_count };
+            }
+        }
+    }
+    if best_placement.match_count == 0 {
+        return Err("no match");
+    }
+    Ok(best_placement)
+}
+
 pub fn smallest(shapes: &[Shape]) -> &Shape {
     shapes
         .iter()
