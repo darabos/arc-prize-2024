@@ -766,6 +766,18 @@ pub fn reverse_colors(colors: &[i32]) -> Vec<i32> {
     reverse_colors
 }
 
+pub fn map_colors_in_image(image: &Image, colors_before: &[i32], colors_after: &[i32]) -> Image {
+    let reversed_before = reverse_colors(colors_before);
+    image
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|&color| colors_after[reversed_before[color as usize] as usize])
+                .collect()
+        })
+        .collect()
+}
+
 /// Draws the image in the given color.
 pub fn paint_shape(image: &mut Image, shape: &Shape, color: i32) {
     for Pixel { x, y, color: _ } in &shape.cells {
@@ -919,36 +931,51 @@ pub fn set_in_image(image: &mut Image, x: i32, y: i32, color: i32) {
     image[y as usize][x as usize] = color;
 }
 
-/// Returns the total number of non-zero pixels in the boxes of the given radius
-/// around the dots.
-pub fn measure_boxes_with_radius(image: &Image, dots: &Shape, radius: i32) -> usize {
-    let mut count = 0;
-    for Pixel { x, y, color: _ } in &dots.cells {
-        for dx in -radius..=radius {
-            for dy in -radius..=radius {
-                let nx = x + dx;
-                let ny = y + dy;
-                if lookup_in_image(image, nx, ny).unwrap_or(0) != 0 {
-                    count += 1;
-                }
-            }
-        }
-    }
-    count
-}
-
-pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Res<Shape> {
+pub fn get_pattern_with_radius(
+    images: &[Rc<Image>],
+    dots: &[&Rc<Shape>],
+    radius: i32,
+) -> Res<Shape> {
+    // println!("get_pattern_with_radius {}", radius);
+    // for image in images {
+    //     print_image(image);
+    // }
     let mut cells = vec![];
     for dx in -radius..=radius {
         for dy in -radius..=radius {
-            let nx = dot.x + dx;
-            let ny = dot.y + dy;
-            let color = lookup_in_image(image, nx, ny).unwrap_or(0);
-            if color != 0 {
+            let mut agreement = -1;
+            'images: for i in 0..images.len() {
+                let image = &images[i];
+                for dot in &dots[i].cells {
+                    let nx = dot.x + dx;
+                    let ny = dot.y + dy;
+                    // Ignore the dots themselves.
+                    if dots[i]
+                        .cells
+                        .iter()
+                        .any(|Pixel { x, y, color: _ }| *x == nx && *y == ny)
+                    {
+                        continue;
+                    }
+                    if let Ok(color) = lookup_in_image(image, nx, ny) {
+                        if agreement == -1 {
+                            agreement = color;
+                        } else if agreement != color {
+                            // println!(
+                            //     "disagreement in {} {}!={} at {} {} ({} {})",
+                            //     i, agreement, color, nx, ny, dx, dy
+                            // );
+                            agreement = -1;
+                            break 'images;
+                        }
+                    }
+                }
+            }
+            if agreement > 0 {
                 cells.push(Pixel {
                     x: dx,
                     y: dy,
-                    color,
+                    color: agreement,
                 });
             }
         }
@@ -957,22 +984,18 @@ pub fn get_pattern_around(image: &Image, dot: &Vec2, radius: i32) -> Res<Shape> 
 }
 
 pub fn find_pattern_around(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
-    // TODO: This is slow. Limit radius? Build pattern incrementally?
-    let mut radius = 0;
-    let mut last_measure = 0;
-    loop {
-        let mut measure = 0;
-        for i in 0..images.len() {
-            measure += measure_boxes_with_radius(&images[i], &dots[i], radius);
+    let mut last_pattern: Option<Shape> = None;
+    for radius in 1..4 {
+        let p = get_pattern_with_radius(&images, &dots, radius)?;
+        if let Some(last_pattern) = last_pattern {
+            // No improvement. We're done.
+            if p.cells.len() <= last_pattern.cells.len() {
+                return Ok(last_pattern);
+            }
         }
-        if measure == last_measure {
-            break;
-        }
-        last_measure = measure;
-        radius += 1;
+        last_pattern = Some(p);
     }
-    // TODO: Instead of just looking at the measure, we should look at the pattern.
-    get_pattern_around(&images[0], &dots[0].cells[0].pos(), radius)
+    Ok(last_pattern.unwrap())
 }
 
 pub fn draw_shape_at(image: &mut Image, shape: &Shape, pos: Vec2) {
@@ -1050,6 +1073,23 @@ pub fn scale_up_image(image: &Image, ratio: Vec2) -> Image {
             for dy in 0..ry {
                 for dx in 0..rx {
                     new_image[y * ry + dy][x * rx + dx] = color;
+                }
+            }
+        }
+    }
+    new_image
+}
+
+pub fn tile_image(image: &Image, repeat_x: usize, repeat_y: usize) -> Image {
+    let height = image.len();
+    let width = image[0].len();
+    let mut new_image = vec![vec![0; width * repeat_x]; height * repeat_y];
+    for y in 0..image.len() {
+        for x in 0..image[0].len() {
+            let color = image[y][x];
+            for dy in 0..repeat_y {
+                for dx in 0..repeat_x {
+                    new_image[y + dy * height][x + dx * width] = color;
                 }
             }
         }

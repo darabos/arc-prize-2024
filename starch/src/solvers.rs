@@ -87,24 +87,19 @@ fn grow_flowers(s: &mut SolverState) -> Res<()> {
         .map(|&i| &s.output_images[i])
         .cloned()
         .collect();
-    let mut output_pattern = tools::find_pattern_around(&output_images, &dots)?;
-    output_pattern.use_relative_colors(&tools::reverse_colors(&s.colors[0]));
-    // TODO: Instead of growing each dot, we should filter by the input_pattern.
-    s.apply(|s: &mut SolverState, i: usize| {
-        let mut new_image = (*s.images[i]).clone();
-        for dots in &s.shapes[i] {
-            for dot in dots.cells.iter() {
-                tools::draw_shape_with_relative_colors_at(
-                    &mut new_image,
-                    &output_pattern,
-                    &s.colors[i],
-                    &dot.pos(),
-                );
+    match tools::find_pattern_around(&output_images, &dots) {
+        Ok(pattern) => s.apply(|s: &mut SolverState, i: usize| {
+            let mut new_image = (*s.images[i]).clone();
+            for dots in &s.shapes[i] {
+                for dot in dots.cells.iter() {
+                    tools::draw_shape_at(&mut new_image, &pattern, dot.pos());
+                }
             }
-        }
-        s.images[i] = Rc::new(new_image);
-        Ok(())
-    })
+            s.images[i] = Rc::new(new_image);
+            Ok(())
+        }),
+        Err(_) => Ok(()), // We grew a nil pattern.
+    }
 }
 
 fn save_shapes(s: &mut SolverState) -> Res<()> {
@@ -742,6 +737,22 @@ fn scale_up_image_add_grid(s: &mut SolverState) -> Res<()> {
         Ok(())
     })?;
     restore_grid(s)
+}
+
+/// Tiles the image to match the output image.
+fn tile_image(s: &mut SolverState) -> Res<()> {
+    must_not_be_empty!(&s.output_images);
+    // Find ratio from looking at example outputs.
+    let output_size = s.output_images[0].len();
+    let input_size = s.images[0].len();
+    if output_size % input_size != 0 {
+        return Err(err!("output size must be a multiple of input size"));
+    }
+    let scale = output_size / input_size;
+    s.apply(|s: &mut SolverState, i: usize| {
+        s.images[i] = Rc::new(tools::tile_image(&s.images[i], scale, scale));
+        Ok(())
+    })
 }
 
 fn use_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
@@ -1766,6 +1777,38 @@ pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+/// Maps everything to s.colors[0]. Restores the original colors at the end.
+/// For example, if colors[0] is [red, blue], and colors[1] is [purple, green],
+/// then in image 1 purple will be mapped to red, and green will be mapped to blue.
+fn use_relative_colors(s: &mut SolverState) -> Res<()> {
+    let mut new_images: ImagePerExample = vec![s.images[0].clone()];
+    for i in 1..s.images.len() {
+        new_images
+            .push(tools::map_colors_in_image(&s.images[i], &s.colors[i], &s.colors[0]).into());
+    }
+    let mut new_output_images: ImagePerExample = vec![];
+    for i in 0..s.output_images.len() {
+        new_output_images.push(
+            tools::map_colors_in_image(&s.output_images[i], &s.colors[i], &s.colors[0]).into(),
+        );
+    }
+    let original_colors = s.colors.clone();
+    s.output_images = new_output_images;
+    s.init_from_images(new_images);
+    s.add_finishing_step(move |s: &mut SolverState| {
+        let mut new_images: ImagePerExample = vec![s.images[0].clone()];
+        for i in 1..s.images.len() {
+            new_images.push(
+                tools::map_colors_in_image(&s.images[i], &original_colors[0], &original_colors[i])
+                    .into(),
+            );
+        }
+        s.images = new_images;
+        Ok(())
+    });
+    Ok(())
+}
+
 fn discard_small_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let mut new_shapes = vec![];
     for shape in &s.shapes[i] {
@@ -2000,6 +2043,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(use_colorsets_as_shapes),
         step_each!(order_shapes_by_size_increasing),
         step_each!(order_colors_by_shapes),
+        step_all!(use_relative_colors),
         step_each!(filter_shapes_by_color),
         step_all!(grow_flowers),
     ],
@@ -2043,6 +2087,13 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(erase_shapes),
         step_each!(place_shapes_best_match_with_all_transforms),
         step_each!(draw_shapes),
+    ],
+    &[
+        // 17
+        step_all!(tile_image),
+        step_all!(refresh_from_image),
+        step_all!(use_colorsets_as_shapes),
+        step_all!(grow_flowers),
     ],
     &[
         // 71
