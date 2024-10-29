@@ -605,6 +605,7 @@ fn print_shapes_step(s: &mut SolverState) -> Res<()> {
 
 #[allow(dead_code)]
 fn print_images_step(s: &mut SolverState) -> Res<()> {
+    println!("Images after {:?}", s.steps);
     s.print_images();
     Ok(())
 }
@@ -1641,7 +1642,9 @@ where
         }
         let image = &s.images[i];
         let mut grid_cells = tools::grid_cut_image(image, &lines);
-        assert!(!grid_cells.is_empty());
+        if grid_cells.is_empty() {
+            return Err(err!("nothing left after cutting"));
+        }
         let selected = select_func(&grid_cells)?;
         s.images[i] = grid_cells.swap_remove(selected).into();
         Ok(())
@@ -2008,6 +2011,65 @@ fn make_image_rotationally_symmetrical(s: &mut SolverState, i: usize) -> Res<()>
     s.images[i] = new_image.into();
     Ok(())
 }
+
+/// Removes columns that match the previous column.
+fn deduplicate_horizontally(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    let (width, height) = s.width_and_height(i);
+    let mut is_duplicate = vec![true; width as usize];
+    is_duplicate[0] = false;
+    for x in 1..width {
+        for y in 0..height {
+            if image[y as usize][x as usize] != image[y as usize][(x - 1) as usize] {
+                is_duplicate[x as usize] = false;
+                break;
+            }
+        }
+    }
+    if !is_duplicate.iter().any(|&b| b) {
+        return Err("no change");
+    }
+    let mut new_image = vec![];
+    for y in 0..height {
+        let mut row = vec![];
+        for x in 0..width {
+            if !is_duplicate[x as usize] {
+                row.push(image[y as usize][x as usize]);
+            }
+        }
+        new_image.push(row);
+    }
+    s.images[i] = new_image.into();
+    Ok(())
+}
+
+/// Removes rows that match the previous row.
+fn deduplicate_vertically(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    let (width, height) = s.width_and_height(i);
+    let mut is_duplicate = vec![true; height as usize];
+    is_duplicate[0] = false;
+    for y in 1..height {
+        for x in 0..width {
+            if image[y as usize][x as usize] != image[(y - 1) as usize][x as usize] {
+                is_duplicate[y as usize] = false;
+                break;
+            }
+        }
+    }
+    if !is_duplicate.iter().any(|&b| b) {
+        return Err("no change");
+    }
+    let mut new_image = vec![];
+    for y in 0..height {
+        if !is_duplicate[y as usize] {
+            new_image.push(image[y as usize].clone());
+        }
+    }
+    s.images[i] = new_image.into();
+    Ok(())
+}
+
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
@@ -2074,6 +2136,8 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(boolean_with_saved_image_or),
     step_each!(boolean_with_saved_image_xor),
     step_each!(connect_aligned_pixels_in_shapes),
+    step_each!(deduplicate_horizontally),
+    step_each!(deduplicate_vertically),
     step_each!(delete_background_shapes),
     step_each!(delete_shapes_touching_border),
     step_each!(discard_small_shapes),
@@ -2249,7 +2313,13 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(remove_grid),
         step_each!(make_image_rotationally_symmetrical),
         step_all!(restore_grid),
-        step_all!(print_images_step),
+    ],
+    &[
+        // 20
+        step_each!(deduplicate_horizontally),
+        step_each!(deduplicate_vertically),
+        step_all!(refresh_from_image),
+        step_all!(remove_grid),
     ],
     &[
         // 71
