@@ -362,10 +362,20 @@ impl SolverState {
     where
         F: Fn(&mut SolverState, usize) -> Res<()>,
     {
+        let mut any_change = false;
         for i in 0..self.images.len() {
-            f(self, i)?;
+            let res = f(self, i);
+            match res {
+                Ok(()) => any_change = true,
+                Err("no change") => continue,
+                err => return err,
+            }
         }
-        Ok(())
+        if any_change {
+            Ok(())
+        } else {
+            Err("no change")
+        }
     }
 
     pub fn get_results(&self) -> Vec<Example> {
@@ -1454,17 +1464,20 @@ fn remove_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
-fn remove_grid(s: &mut SolverState, i: usize) -> Res<()> {
+fn remove_grid(s: &mut SolverState) -> Res<()> {
     // TODO: Kinda slow. Not all lines are a grid. Error out if the lines don't make a grid.
-    let (width, height) = s.width_and_height(i);
-    if width < 3 && height < 3 {
-        return Err(err!("image too small"));
-    }
-    if s.lines[i].horizontal.is_empty() && s.lines[i].vertical.is_empty() {
-        return Err(err!("no grid"));
-    }
-    remove_horizontal_lines(s, i)?;
-    remove_vertical_lines(s, i)?;
+    s.apply(|s: &mut SolverState, i: usize| {
+        let (width, height) = s.width_and_height(i);
+        if width < 3 && height < 3 {
+            return Err(err!("image too small"));
+        }
+        if s.lines[i].horizontal.is_empty() && s.lines[i].vertical.is_empty() {
+            return Err(err!("no grid"));
+        }
+        remove_horizontal_lines(s, i)?;
+        remove_vertical_lines(s, i)?;
+        Ok(())
+    })?;
     // Keep the horizontal and vertical lines so we can restore the grid later.
     let lines = std::mem::take(&mut s.lines);
     let images = std::mem::take(&mut s.images);
@@ -1480,12 +1493,16 @@ fn insert_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
     let lines = &lines[lines.len() - 1][i].horizontal;
     let mut line_i = 0;
     let (width, height) = s.width_and_height(i);
-    for y in 0..height {
+    for y in 0..=height {
         while line_i < lines.len() && new_image.len() == lines[line_i].pos as usize {
-            new_image.push(vec![lines[line_i].color; width as usize]);
+            for _ in 0..lines[line_i].width {
+                new_image.push(vec![lines[line_i].color; width as usize]);
+            }
             line_i += 1;
         }
-        new_image.push(image[y as usize].clone());
+        if y < height {
+            new_image.push(image[y as usize].clone());
+        }
     }
     s.images[i] = Rc::new(new_image);
     Ok(())
@@ -1500,12 +1517,16 @@ fn insert_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
     for y in 0..height {
         let mut row = vec![];
         let mut line_i = 0;
-        for x in 0..width {
+        for x in 0..=width {
             while line_i < lines.len() && row.len() == lines[line_i].pos as usize {
-                row.push(lines[line_i].color);
+                for _ in 0..lines[line_i].width {
+                    row.push(lines[line_i].color);
+                }
                 line_i += 1;
             }
-            row.push(image[y as usize][x as usize]);
+            if x < width {
+                row.push(image[y as usize][x as usize]);
+            }
         }
         new_image.push(row);
     }
@@ -1913,6 +1934,80 @@ fn place_shapes_best_match_with_just_translation(s: &mut SolverState, i: usize) 
     Ok(())
 }
 
+fn keep_only_border_lines(s: &mut SolverState, i: usize) -> Res<()> {
+    let mut new_lines = tools::LineSet {
+        horizontal: vec![],
+        vertical: vec![],
+    };
+    let mut any_removed = false;
+    let (width, height) = s.width_and_height(i);
+    for line in &s.lines[i].horizontal {
+        if line.pos == 0 || line.pos + line.width as i32 == height {
+            new_lines.horizontal.push(*line);
+        } else {
+            any_removed = true;
+        }
+    }
+    for line in &s.lines[i].vertical {
+        if line.pos == 0 || line.pos + line.width as i32 == width {
+            new_lines.vertical.push(*line);
+        } else {
+            any_removed = true;
+        }
+    }
+    if !any_removed {
+        return Err("no change");
+    }
+    s.lines[i] = new_lines.into();
+    Ok(())
+}
+
+fn make_image_symmetrical(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    let (width, height) = s.width_and_height(i);
+    let mut new_image = vec![];
+    for y in 0..height {
+        let mut row = vec![];
+        for x in 0..width {
+            let mut c = image[y as usize][x as usize];
+            c = tools::blend_if_same_color(c, image[y as usize][(width - 1 - x) as usize])?;
+            c = tools::blend_if_same_color(c, image[(height - 1 - y) as usize][x as usize])?;
+            c = tools::blend_if_same_color(
+                c,
+                image[(height - 1 - y) as usize][(width - 1 - x) as usize],
+            )?;
+            row.push(c);
+        }
+        new_image.push(row);
+    }
+    s.images[i] = new_image.into();
+    Ok(())
+}
+
+fn make_image_rotationally_symmetrical(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    let (width, height) = s.width_and_height(i);
+    if width != height {
+        return Err(err!("image not square"));
+    }
+    let mut new_image = vec![];
+    for y in 0..height {
+        let mut row = vec![];
+        for x in 0..width {
+            let mut c = image[y as usize][x as usize];
+            c = tools::blend_if_same_color(c, image[x as usize][(height - 1 - y) as usize])?;
+            c = tools::blend_if_same_color(
+                c,
+                image[(height - 1 - y) as usize][(width - 1 - x) as usize],
+            )?;
+            c = tools::blend_if_same_color(c, image[(width - 1 - x) as usize][y as usize])?;
+            row.push(c);
+        }
+        new_image.push(row);
+    }
+    s.images[i] = new_image.into();
+    Ok(())
+}
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
@@ -1936,6 +2031,11 @@ impl std::fmt::Display for SolverStep {
         }
     }
 }
+impl std::fmt::Debug for SolverStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
 pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(allow_background_color_shapes),
     step_all!(grow_flowers_square),
@@ -1946,6 +2046,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(recolor_shapes_per_output),
     step_all!(refresh_from_image),
     step_all!(remap_colors_per_output),
+    step_all!(remove_grid),
     step_all!(repeat_shapes_on_lattice_per_image),
     step_all!(repeat_shapes_on_lattice_per_output),
     step_all!(restore_grid),
@@ -1967,6 +2068,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(use_colorsets_as_shapes),
     step_all!(use_multicolor_shapes),
     step_all!(use_output_size),
+    step_all!(use_relative_colors),
     step_each!(allow_diagonals_in_shapes),
     step_each!(boolean_with_saved_image_and),
     step_each!(boolean_with_saved_image_or),
@@ -1980,6 +2082,9 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(erase_shapes),
     step_each!(filter_shapes_by_color),
     step_each!(find_repeating_pattern_in_shape),
+    step_each!(keep_only_border_lines),
+    step_each!(make_image_rotationally_symmetrical),
+    step_each!(make_image_symmetrical),
     step_each!(move_saved_shape_to_cover_current_shape_max),
     step_each!(move_shapes_to_touch_saved_shape),
     step_each!(number_sequence_to_shapes),
@@ -1993,7 +2098,6 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(place_shapes_best_match_with_all_transforms),
     step_each!(place_shapes_best_match_with_just_translation),
     step_each!(recolor_saved_shapes_to_current_shape),
-    step_each!(remove_grid),
     step_each!(repeat_last_move_and_draw),
     step_each!(repeat_shapes_horizontally),
     step_each!(repeat_shapes_vertically),
@@ -2066,7 +2170,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     ],
     &[
         // 8
-        step_each!(remove_grid),
+        step_all!(remove_grid),
         step_all!(use_colorsets_as_shapes),
         step_each!(connect_aligned_pixels_in_shapes),
         step_all!(restore_grid),
@@ -2140,6 +2244,14 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(grow_flowers_square),
     ],
     &[
+        // 19
+        step_each!(keep_only_border_lines),
+        step_all!(remove_grid),
+        step_each!(make_image_rotationally_symmetrical),
+        step_all!(restore_grid),
+        step_all!(print_images_step),
+    ],
+    &[
         // 71
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_xor),
@@ -2158,7 +2270,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     ],
     &[
         // 1cf80156
-        step_each!(remove_grid),
+        step_all!(remove_grid),
     ],
     &[
         // unused
@@ -2166,6 +2278,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(rotate_to_landscape_cw),
         step_all!(select_grid_cell_most_filled_in),
         step_each!(delete_shapes_touching_border),
+        step_each!(make_image_symmetrical),
         step_each!(order_shapes_by_color),
         step_each!(order_shapes_from_left_to_right),
         step_each!(pick_bottom_right_shape),

@@ -1257,3 +1257,15 @@ fn rotate_image_ccw(image: &Image) -> Image {
     }
     new_image
 }
+
+pub fn blend_if_same_color(a: i32, b: i32) -> Res<i32> {
+    if a == 0 {
+        Ok(b)
+    } else if b == 0 {
+        Ok(a)
+    } else if a == b {
+        Ok(a)
+    } else {
+        Err("different colors")
+    }
+}
