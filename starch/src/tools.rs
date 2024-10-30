@@ -794,6 +794,20 @@ pub fn crop_image(image: &Image, left: i32, top: i32, width: i32, height: i32) -
     new_image
 }
 
+pub fn a_matches_b_where_a_is_not_transparent(a: &Image, b: &Image) -> bool {
+    if a.len() != b.len() || a[0].len() != b[0].len() {
+        return false;
+    }
+    for y in 0..a.len() {
+        for x in 0..a[0].len() {
+            if a[y][x] != 0 && a[y][x] != b[y][x] {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 pub fn erase_shape(image: &mut Image, shape: &Shape) {
     paint_shape(image, &shape, 0)
 }
@@ -1053,22 +1067,22 @@ pub fn draw_shape_with_relative_colors_at(
     }
 }
 
-pub fn set_used_colors_in_image(image: &Image, is_used: &mut Vec<bool>) {
-    for row in image.iter() {
-        for cell in row {
-            is_used[*cell as usize] = true;
+pub fn count_colors_in_image(image: &Image, counts: &mut Vec<usize>) {
+    for row in &**image {
+        for &c in row {
+            counts[c as usize] += 1;
         }
     }
 }
 
 pub fn get_used_colors(images: &[Rc<Image>]) -> Vec<i32> {
-    let mut is_used = vec![false; COLORS.len()];
+    let mut counts = vec![0; COLORS.len()];
     for image in images {
-        set_used_colors_in_image(image, &mut is_used);
+        count_colors_in_image(image, &mut counts);
     }
     let mut used_colors = vec![];
-    for (i, &used) in is_used.iter().enumerate() {
-        if used && i != 0 {
+    for (i, &count) in counts.iter().enumerate() {
+        if count > 0 && i != 0 {
             used_colors.push(i as i32);
         }
     }
@@ -1250,4 +1264,20 @@ pub fn blend_if_same_color(a: i32, b: i32) -> Res<i32> {
     } else {
         Err("different colors")
     }
+}
+
+pub fn possible_orders<T: Clone + std::fmt::Debug>(items: &[T]) -> Vec<Vec<T>> {
+    if items.len() <= 1 {
+        return vec![items.to_vec()];
+    }
+    let mut orders = vec![];
+    for (i, item) in items.iter().enumerate() {
+        let mut rest = items.to_vec();
+        rest.remove(i);
+        for mut order in possible_orders(&rest) {
+            order.push(item.clone());
+            orders.push(order);
+        }
+    }
+    orders
 }

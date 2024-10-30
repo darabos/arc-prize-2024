@@ -151,6 +151,24 @@ fn save_first_shape_use_the_rest(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+fn take_first_shape_save_the_rest(s: &mut SolverState) -> Res<()> {
+    if s.shapes.iter().any(|shapes| shapes.len() < 2) {
+        return Err(err!("not enough shapes"));
+    }
+    let first_shapes: ShapesPerExample = s
+        .shapes
+        .iter()
+        .map(|shapes| vec![shapes[0].clone()])
+        .collect();
+    let the_rest = std::mem::take(&mut s.shapes)
+        .into_iter()
+        .map(|shapes| shapes[1..].to_vec())
+        .collect();
+    s.shapes = first_shapes;
+    s.saved_shapes.push(the_rest);
+    Ok(())
+}
+
 fn load_shapes(s: &mut SolverState) -> Res<()> {
     load_earlier_shapes(s, 0)
 }
@@ -1614,10 +1632,10 @@ fn select_grid_cell_outlier_by_color(s: &mut SolverState) -> Res<()> {
     select_grid_cell(s, |grid_cells: &[Image]| {
         let mut users = vec![vec![]; COLORS.len()];
         for (index, c) in grid_cells.iter().enumerate() {
-            let mut is_used = vec![false; COLORS.len()];
-            tools::set_used_colors_in_image(c, &mut is_used);
-            for (color, &used) in is_used.iter().enumerate() {
-                if used {
+            let mut counts = vec![0; COLORS.len()];
+            tools::count_colors_in_image(c, &mut counts);
+            for (color, &count) in counts.iter().enumerate() {
+                if count > 0 {
                     users[color].push(index);
                 }
             }
@@ -2220,6 +2238,114 @@ fn cover_image_with_shapes_recursive(mut state: &mut CoverageState, min_y: i32) 
     Err(err!("could not find covering"))
 }
 
+fn order_colors_and_shapes_by_output_frequency_increasing(s: &mut SolverState) -> Res<()> {
+    let mut color_counts = vec![0; COLORS.len()];
+    for image in &s.output_images {
+        tools::count_colors_in_image(image, &mut color_counts);
+    }
+    let mut color_order: Vec<i32> = (0..COLORS.len() as i32).collect();
+    color_order.sort_by_key(|&c| color_counts[c as usize]);
+    for i in 0..s.images.len() {
+        s.colors[i] = color_order.clone();
+        let mut new_shapes = s.shapes[i].clone();
+        new_shapes.sort_by_key(|shape| color_counts[shape.color() as usize]);
+        s.shapes[i] = new_shapes;
+    }
+    Ok(())
+}
+
+fn atomize_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    let mut new_shapes = vec![];
+    for shape in &s.shapes[i] {
+        for cell in &shape.cells {
+            new_shapes.push(Shape::new(vec![*cell]).into());
+        }
+    }
+    s.shapes[i] = new_shapes;
+    Ok(())
+}
+
+/// Expands each pixel in the shapes to a vertical or horizontal infinite line of the same color.
+/// The direction and order of the colors is gleaned from the output image.
+/// The lines are drawn on the image.
+fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
+    let colors = tools::get_used_colors(&s.images);
+    if colors.len() > 3 {
+        return Err(err!("too many colors"));
+    }
+    // Figure out which is horizontal and which is vertical.
+    let mut horizontal_count = vec![0; COLORS.len()];
+    let mut vertical_count = vec![0; COLORS.len()];
+    for i in 0..s.output_images.len() {
+        let image = &s.output_images[i];
+        let (w, h) = tools::width_and_height(image);
+        for shape in &s.shapes[i] {
+            for &tools::Pixel { x, y, color } in &shape.cells {
+                if x < 0 || x >= w || y < 0 || y >= h {
+                    return Err(err!("shape out of bounds"));
+                }
+                for ix in 0..w {
+                    if image[y as usize][ix as usize] == color {
+                        horizontal_count[color as usize] += 1;
+                    }
+                }
+                for iy in 0..h {
+                    if image[iy as usize][x as usize] == color {
+                        vertical_count[color as usize] += 1;
+                    }
+                }
+            }
+        }
+    }
+    let is_horizontal = horizontal_count
+        .iter()
+        .zip(&vertical_count)
+        .map(|(h, v)| h > v)
+        .collect();
+    // Figure out the order of colors.
+    'order: for order in tools::possible_orders(&colors) {
+        let reverse_colors = tools::reverse_colors(&order);
+        for i in 0..s.output_images.len() {
+            let image = &s.output_images[i];
+            let mut shapes = s.shapes[i].clone();
+            shapes.sort_by_key(|s| reverse_colors[s.color() as usize]);
+            let (w, h) = tools::width_and_height(image);
+            let mut new_image = vec![vec![0; w as usize]; h as usize];
+            dots_to_lines(&shapes, &is_horizontal, &mut new_image);
+            if !tools::a_matches_b_where_a_is_not_transparent(&new_image, image) {
+                continue 'order;
+            }
+        }
+        // This order matches all outputs. Draw it.
+        for i in 0..s.images.len() {
+            let mut new_image = (*s.images[i]).clone();
+            let mut shapes = s.shapes[i].clone();
+            shapes.sort_by_key(|s| reverse_colors[s.color() as usize]);
+            dots_to_lines(&shapes, &is_horizontal, &mut new_image);
+            s.images[i] = new_image.into();
+        }
+        return Ok(());
+    }
+    Err(err!("could not figure out dots"))
+}
+
+fn dots_to_lines(shapes: &Shapes, is_horizontal: &Vec<bool>, image: &mut Image) {
+    let (w, h) = tools::width_and_height(image);
+    for shape in shapes {
+        for &tools::Pixel { x, y, color } in &shape.cells {
+            if is_horizontal[color as usize] {
+                for ix in 0..w {
+                    image[y as usize][ix as usize] = color;
+                }
+            } else {
+                for iy in 0..h {
+                    image[iy as usize][x as usize] = color;
+                }
+            }
+        }
+    }
+}
+
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
@@ -2483,6 +2609,10 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(take_all_shapes_from_output),
         step_each!(cover_image_with_shapes),
         step_each!(draw_shapes),
+    ],
+    &[
+        // 23
+        step_all!(dots_to_lines_per_output),
     ],
     &[
         // 71
