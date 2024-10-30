@@ -1721,6 +1721,11 @@ fn refresh_from_image(s: &mut SolverState) -> Res<()> {
 }
 
 fn allow_background_color_shapes(s: &mut SolverState) -> Res<()> {
+    if s.shapes == s.shapes_including_background
+        && s.output_shapes == s.output_shapes_including_background
+    {
+        return Err(err!("already including background"));
+    }
     s.shapes = s.shapes_including_background.clone();
     s.output_shapes = s.output_shapes_including_background.clone();
     Ok(())
@@ -1763,7 +1768,7 @@ fn shapes_to_number_sequence(s: &mut SolverState, i: usize) -> Res<()> {
 fn solve_number_sequence(s: &mut SolverState) -> Res<()> {
     must_not_be_empty!(s.number_sequences);
     must_not_be_empty!(s.output_number_sequences);
-    // Simple placeholder for now.
+    // Use the longest sequence as the model.
     let longest_sequence = s
         .output_number_sequences
         .iter()
@@ -1771,14 +1776,24 @@ fn solve_number_sequence(s: &mut SolverState) -> Res<()> {
         .max_by_key(|(_i, seq)| seq.len())
         .map(|(i, _seq)| i)
         .ok_or(err!("no sequences"))?;
+    let model = &s.output_number_sequences[longest_sequence];
+    // Check that the model matches all sequences.
+    for seq in &s.output_number_sequences {
+        for j in 0..seq.len() {
+            if seq[j] != model[j] {
+                return Err(err!("sequences don't match"));
+            }
+        }
+    }
+    // Apply the model to all sequences.
     for seq in &mut s.number_sequences {
-        *seq = s.output_number_sequences[longest_sequence].clone();
+        *seq = model.clone();
     }
     Ok(())
 }
 
 /// Put the shapes after each other from left to right.
-fn number_sequence_to_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+fn number_sequence_to_shapes_left_to_right(s: &mut SolverState, i: usize) -> Res<()> {
     must_not_be_empty!(s.number_sequences);
     let relative_shapes: Vec<Shape> = s.shapes[i]
         .iter()
@@ -1801,7 +1816,14 @@ fn number_sequence_to_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
-pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
+fn follow_shape_sequence_per_output(s: &mut SolverState) -> Res<()> {
+    // I've wrapped these in one step because there is nothing else to do with number sequences at the moment.
+    s.apply(shapes_to_number_sequence)?;
+    solve_number_sequence(s)?;
+    s.apply(number_sequence_to_shapes_left_to_right)
+}
+
+fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
     let mut color_map: Vec<i32> = vec![-1; COLORS.len()];
     for i in 0..s.output_images.len() {
         let input = &s.images[i];
@@ -2129,6 +2151,7 @@ impl std::fmt::Debug for SolverStep {
 }
 pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(allow_background_color_shapes),
+    step_all!(follow_shape_sequence_per_output),
     step_all!(grow_flowers_square),
     step_all!(load_shapes_except_current_shapes),
     step_all!(make_common_output_image),
@@ -2151,7 +2174,6 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(select_grid_cell_least_filled_in),
     step_all!(select_grid_cell_most_filled_in),
     step_all!(select_grid_cell_outlier_by_color),
-    step_all!(solve_number_sequence),
     step_all!(split_into_two_images),
     step_all!(substates_for_each_color),
     step_all!(substates_for_each_image),
@@ -2182,7 +2204,6 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(make_image_symmetrical),
     step_each!(move_saved_shape_to_cover_current_shape_max),
     step_each!(move_shapes_to_touch_saved_shape),
-    step_each!(number_sequence_to_shapes),
     step_each!(order_colors_by_shapes),
     step_each!(order_shapes_by_color),
     step_each!(order_shapes_by_size_decreasing),
@@ -2196,7 +2217,6 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(repeat_last_move_and_draw),
     step_each!(repeat_shapes_horizontally),
     step_each!(repeat_shapes_vertically),
-    step_each!(shapes_to_number_sequence),
     step_each!(tile_shapes_after_scale_up),
     step_each!(use_image_as_shape),
     step_each!(use_image_without_background_as_shape),
@@ -2297,9 +2317,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(draw_shapes),
         step_all!(refresh_from_image),
         step_all!(allow_background_color_shapes),
-        step_each!(shapes_to_number_sequence),
-        step_all!(solve_number_sequence),
-        step_each!(number_sequence_to_shapes),
+        step_all!(follow_shape_sequence_per_output),
         step_each!(draw_shapes),
     ],
     &[
