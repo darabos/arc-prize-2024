@@ -821,7 +821,7 @@ fn draw_shape_where_non_empty(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
-fn delete_shapes_touching_border(s: &mut SolverState, i: usize) -> Res<()> {
+fn discard_shapes_touching_border(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes[i];
     *shapes = shapes
         .iter()
@@ -1027,7 +1027,7 @@ fn allow_diagonals_in_multicolor_shapes(s: &mut SolverState, i: usize) -> Res<()
     Ok(())
 }
 
-fn delete_background_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+fn discard_background_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes[i];
     *shapes = shapes
         .iter()
@@ -2121,6 +2121,105 @@ fn make_common_output_image(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+/// Takes the output shapes from all outputs. Deduplicates them.
+fn take_all_shapes_from_output(s: &mut SolverState) -> Res<()> {
+    let mut new_shapes: Shapes = vec![];
+    for s in &s.output_shapes {
+        for shape in s {
+            let rel = shape.to_relative_pos();
+            if !new_shapes.iter().any(|s| **s == rel) {
+                new_shapes.push(rel.into());
+            }
+        }
+    }
+    s.shapes = vec![new_shapes; s.images.len()];
+    Ok(())
+}
+
+struct CoverageState {
+    image: Rc<Image>,
+    shapes: Shapes,
+    is_covered: Vec<Vec<bool>>,
+    still_uncovered: usize,
+    // (shape index, position)
+    placements: Vec<(usize, tools::Vec2)>,
+    budget: i32,
+}
+
+fn cover_image_with_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    let shapes = &s.shapes[i];
+    // We assume it's not a terribly hard problem. But we still allow backtracking.
+    let mut state = CoverageState {
+        image: image.clone(),
+        shapes: shapes.clone(),
+        is_covered: vec![vec![false; image[0].len()]; image.len()],
+        still_uncovered: image
+            .iter()
+            .map(|row| row.iter().filter(|&&c| c != 0).count())
+            .sum(),
+        placements: vec![],
+        budget: 1000,
+    };
+    cover_image_with_shapes_recursive(&mut state, 0)?;
+    let mut new_shapes = vec![];
+    for (i, pos) in state.placements {
+        let shape = state.shapes[i].move_by(pos);
+        new_shapes.push(shape.into());
+    }
+    s.shapes[i] = new_shapes;
+    Ok(())
+}
+
+/// Places one shape in a possible position, then recurses.
+fn cover_image_with_shapes_recursive(mut state: &mut CoverageState, min_y: i32) -> Res<()> {
+    if state.still_uncovered == 0 {
+        return Ok(());
+    }
+    let (width, height) = tools::width_and_height(&state.image);
+    for y in min_y..height {
+        for x in 0..width {
+            'next: for i in 0..state.shapes.len() {
+                let shape = state.shapes[i].clone();
+                if shape.color() == 0 {
+                    continue;
+                }
+                // Check if it can be placed here.
+                for cell in &shape.cells {
+                    if tools::lookup_in_image(&state.image, cell.x + x, cell.y + y).unwrap_or(0)
+                        == 0
+                    {
+                        continue 'next;
+                    }
+                    if state.is_covered[(cell.y + y) as usize][(cell.x + x) as usize] {
+                        continue 'next;
+                    }
+                }
+                // Place it here.
+                state.placements.push((i, tools::Vec2 { x, y }));
+                for cell in &shape.cells {
+                    state.is_covered[(cell.y + y) as usize][(cell.x + x) as usize] = true;
+                    state.still_uncovered -= 1;
+                }
+                if let Ok(()) = cover_image_with_shapes_recursive(&mut state, y) {
+                    return Ok(());
+                }
+                // It didn't pan out. Undo the placement if we still have budget.
+                if state.budget <= 0 {
+                    return Err(err!("budget exhausted"));
+                }
+                state.placements.pop();
+                for cell in &shape.cells {
+                    state.is_covered[(cell.y + y) as usize][(cell.x + x) as usize] = false;
+                    state.still_uncovered += 1;
+                }
+            }
+        }
+    }
+    state.budget -= 1;
+    Err(err!("could not find covering"))
+}
+
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
@@ -2178,6 +2277,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_all!(substates_for_each_color),
     step_all!(substates_for_each_image),
     step_all!(substates_for_each_shape),
+    step_all!(take_all_shapes_from_output),
     step_all!(tile_image),
     step_all!(use_colorsets_as_shapes),
     step_all!(use_multicolor_shapes),
@@ -2189,10 +2289,11 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(boolean_with_saved_image_or),
     step_each!(boolean_with_saved_image_xor),
     step_each!(connect_aligned_pixels_in_shapes),
+    step_each!(cover_image_with_shapes),
     step_each!(deduplicate_horizontally),
     step_each!(deduplicate_vertically),
-    step_each!(delete_background_shapes),
-    step_each!(delete_shapes_touching_border),
+    step_each!(discard_background_shapes),
+    step_each!(discard_shapes_touching_border),
     step_each!(discard_small_shapes),
     step_each!(draw_shape_where_non_empty),
     step_each!(draw_shapes),
@@ -2249,13 +2350,13 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         // 3
         step_each!(pick_bottom_right_shape_per_color),
         step_all!(load_shapes_except_current_shapes),
-        step_each!(delete_background_shapes),
+        step_each!(discard_background_shapes),
         step_all!(move_shapes_per_output),
     ],
     &[
         // 4
         step_each!(allow_diagonals_in_shapes),
-        step_each!(delete_background_shapes),
+        step_each!(discard_background_shapes),
         step_each!(order_shapes_by_size_decreasing),
         step_all!(save_first_shape_use_the_rest),
         step_all!(substates_for_each_shape),
@@ -2378,6 +2479,12 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(draw_shapes),
     ],
     &[
+        // 22
+        step_all!(take_all_shapes_from_output),
+        step_each!(cover_image_with_shapes),
+        step_each!(draw_shapes),
+    ],
+    &[
         // 71
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_xor),
@@ -2403,7 +2510,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(move_shapes_per_output_shapes),
         step_all!(rotate_to_landscape_cw),
         step_all!(select_grid_cell_most_filled_in),
-        step_each!(delete_shapes_touching_border),
+        step_each!(discard_shapes_touching_border),
         step_each!(make_image_symmetrical),
         step_each!(order_shapes_by_color),
         step_each!(order_shapes_from_left_to_right),

@@ -5,8 +5,8 @@ use std::rc::Rc;
 type Color = i32;
 
 pub const COLORS: [colored::Color; 12] = [
-    colored::Color::BrightWhite,
     colored::Color::Black,
+    colored::Color::BrightWhite,
     colored::Color::Blue,
     colored::Color::Red,
     colored::Color::Green,
@@ -62,7 +62,7 @@ pub struct Pixel {
     pub color: Color,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shape {
     pub cells: Vec<Pixel>,            // Always sorted.
     pub bb: Rect,                     // Bounding box.
@@ -749,25 +749,6 @@ impl Shape {
     }
 }
 
-impl PartialEq for Shape {
-    fn eq(&self, other: &Self) -> bool {
-        if self.has_relative_colors != other.has_relative_colors {
-            return false;
-        }
-        if self.cells.len() != other.cells.len() {
-            return false;
-        }
-        for (a, b) in self.cells.iter().zip(other.cells.iter()) {
-            if a.x != b.x || a.y != b.y || a.color != b.color {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-impl Eq for Shape {}
-
 pub fn reverse_colors(colors: &[i32]) -> Vec<i32> {
     let mut reverse_colors = vec![-1; COLORS.len()];
     for (i, &color) in colors.iter().enumerate() {
@@ -928,12 +909,17 @@ pub fn smallest(shapes: &[Shape]) -> &Shape {
         .expect("Should have been a shape")
 }
 
-pub fn lookup_in_image(image: &Image, x: i32, y: i32) -> Res<i32> {
+pub fn lookup_in_2d<T: Copy>(image: &Vec<Vec<T>>, x: i32, y: i32) -> Res<T> {
     if x < 0 || y < 0 || x >= image[0].len() as i32 || y >= image.len() as i32 {
         return Err("out of bounds");
     }
     Ok(image[y as usize][x as usize])
 }
+
+pub fn lookup_in_image(image: &Image, x: i32, y: i32) -> Res<i32> {
+    lookup_in_2d(image, x, y)
+}
+
 pub fn set_in_image(image: &mut Image, x: i32, y: i32, color: i32) {
     if x < 0 || y < 0 || x >= image[0].len() as i32 || y >= image.len() as i32 {
         return;
