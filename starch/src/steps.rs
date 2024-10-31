@@ -1,6 +1,6 @@
 use crate::solvers::*;
 use crate::tools;
-use crate::tools::{Example, Image, Res, Shape, Task, Vec2, COLORS};
+use crate::tools::{Image, Res, Shape, SubImageSpec, Vec2, COLORS};
 use std::rc::Rc;
 
 macro_rules! err {
@@ -1996,5 +1996,91 @@ pub fn recolor_shapes_to_selected_color(s: &mut SolverState, i: usize) -> Res<()
     if !any_change {
         return Err("no change");
     }
+    Ok(())
+}
+
+pub fn zoom_to_content(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    let mut min_x = image.width;
+    let mut max_x = 0;
+    let mut min_y = image.height;
+    let mut max_y = 0;
+    for cs in &s.colorsets[i] {
+        min_x = min_x.min(cs.bb.left as usize);
+        max_x = max_x.max(cs.bb.right as usize);
+        min_y = min_y.min(cs.bb.top as usize);
+        max_y = max_y.max(cs.bb.bottom as usize);
+    }
+    if min_x == 0 && min_y == 0 && max_x == image.width && max_y == image.height {
+        return Err("no change");
+    }
+    s.images[i] = image
+        .sub_image(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
+        .into();
+    Ok(())
+}
+pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    if image.width < image.height {
+        match &image.sub_image {
+            None => Err(err!("no base image")),
+            Some(SubImageSpec {
+                left,
+                top,
+                full_image,
+            }) => {
+                if *left < image.height - image.width {
+                    return Err("base image too small");
+                }
+                let new_left = left - (image.height - image.width);
+                s.images[i] = Image {
+                    sub_image: Some(SubImageSpec {
+                        left: new_left,
+                        top: *top,
+                        full_image: full_image.clone(),
+                    }),
+                    width: image.height,
+                    height: image.height,
+                    pixels: vec![],
+                }
+                .into();
+                Ok(())
+            }
+        }
+    } else if image.width > image.height {
+        match &image.sub_image {
+            None => Err(err!("no base image")),
+            Some(SubImageSpec {
+                left,
+                top,
+                full_image,
+            }) => {
+                if *top < image.width - image.height {
+                    return Err("base image too small");
+                }
+                let new_top = top - (image.width - image.height);
+                s.images[i] = Image {
+                    sub_image: Some(SubImageSpec {
+                        left: *left,
+                        top: new_top,
+                        full_image: full_image.clone(),
+                    }),
+                    width: image.width,
+                    height: image.width,
+                    pixels: image.pixels.clone(),
+                }
+                .into();
+                Ok(())
+            }
+        }
+    } else {
+        Err("no change")
+    }
+}
+pub fn recolor_image_to_selected_color(s: &mut SolverState, i: usize) -> Res<()> {
+    let mut new_image = (*s.images[i]).clone();
+    let color = s.colors[i][0];
+    new_image.update(|_x, _y, c| if c == 0 { 0 } else { color });
+    s.images[i] = new_image.into();
     Ok(())
 }

@@ -2,21 +2,41 @@ use crate::tools::{write_color, Color, Pixel, Res, Shape, Vec2};
 
 impl std::ops::Index<(usize, usize)> for Image {
     type Output = Color;
-    fn index<'a>(&'a self, (x, y): (usize, usize)) -> &'a Color {
-        &self.pixels[y * self.width + x]
+    fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
+        match &self.sub_image {
+            Some(SubImageSpec {
+                top,
+                left,
+                full_image,
+            }) => {
+                let (x, y) = (x + left, y + top);
+                full_image.index((x, y))
+            }
+            None => &self.pixels[y * self.width + x],
+        }
     }
 }
 
 impl std::ops::IndexMut<(usize, usize)> for Image {
-    fn index_mut<'a>(&'a mut self, (x, y): (usize, usize)) -> &'a mut Color {
-        &mut self.pixels[y * self.width + x]
+    fn index_mut(&mut self, (x, y): (usize, usize)) -> &mut Color {
+        match &mut self.sub_image {
+            Some(SubImageSpec {
+                top,
+                left,
+                full_image,
+            }) => {
+                let (x, y) = (x + *left, y + *top);
+                full_image.index_mut((x, y))
+            }
+            None => &mut self.pixels[y * self.width + x],
+        }
     }
 }
 impl std::fmt::Display for Image {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for row in self.rows() {
-            for cell in row {
-                write_color(f, *cell);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                write_color(f, self[(x, y)]);
             }
             writeln!(f)?;
         }
@@ -25,10 +45,18 @@ impl std::fmt::Display for Image {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+pub struct SubImageSpec {
+    pub top: usize,
+    pub left: usize,
+    pub full_image: Box<Image>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct Image {
     pub width: usize,
     pub height: usize,
     pub pixels: Vec<Color>,
+    pub sub_image: Option<SubImageSpec>,
 }
 
 impl Image {
@@ -37,13 +65,42 @@ impl Image {
             width,
             height,
             pixels: vec![0; width * height],
+            sub_image: None,
         }
     }
-    pub fn rows(&self) -> std::slice::Chunks<'_, Color> {
-        self.pixels.chunks(self.width)
+    pub fn sub_image(&self, left: usize, top: usize, width: usize, height: usize) -> Image {
+        assert!(left + width <= self.width);
+        assert!(top + height <= self.height);
+        match &self.sub_image {
+            Some(SubImageSpec {
+                top,
+                left,
+                full_image,
+            }) => full_image.sub_image(left + left, top + top, width, height),
+            None => Image {
+                width,
+                height,
+                pixels: vec![],
+                sub_image: Some(SubImageSpec {
+                    top,
+                    left,
+                    full_image: Box::new(self.clone()),
+                }),
+            },
+        }
     }
     pub fn is_empty(&self) -> bool {
         self.width == 0 && self.height == 0
+    }
+    pub fn full(&self) -> &Image {
+        match &self.sub_image {
+            Some(SubImageSpec {
+                top: _,
+                left: _,
+                full_image,
+            }) => full_image.full(),
+            None => self,
+        }
     }
     pub fn update(&mut self, f: impl Fn(usize, usize, Color) -> Color) {
         for y in 0..self.height {
