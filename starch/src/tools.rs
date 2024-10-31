@@ -830,6 +830,19 @@ pub fn draw_shape_with_colors(image: &mut Image, shape: &Shape, colors: &[i32]) 
     }
 }
 
+pub fn draw_image_at(image: &mut Image, other: &Image, pos: Vec2) {
+    for y in 0..other.len() {
+        for x in 0..other[0].len() {
+            let nx = pos.x + x as i32;
+            let ny = pos.y + y as i32;
+            if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+                continue;
+            }
+            image[ny as usize][nx as usize] = other[y as usize][x as usize];
+        }
+    }
+}
+
 // Moves the first shape pixel by pixel. (Not using bounding boxes.)
 pub fn move_shape_to_shape_in_direction(
     image: &Image,

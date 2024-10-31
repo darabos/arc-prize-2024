@@ -270,11 +270,15 @@ impl SolverState {
             ..Default::default()
         };
         state.init_from_images(images);
+        save_whole_image(&mut state).unwrap();
         state
     }
 
     fn init_from_images(&mut self, images: ImagePerExample) {
         self.images = images;
+        self.init_from_current_images();
+    }
+    fn init_from_current_images(&mut self) {
         self.colorsets = self
             .images
             .iter()
@@ -1239,7 +1243,7 @@ fn boolean_with_saved_image_nand(s: &mut SolverState, i: usize) -> Res<()> {
     boolean_with_saved_image_function(s, i, |a, b| if a == 0 && b == 0 { 1 } else { 0 })
 }
 fn boolean_with_saved_image_or(s: &mut SolverState, i: usize) -> Res<()> {
-    boolean_with_saved_image_function(s, i, |a, b| if a == 0 { b } else { a })
+    boolean_with_saved_image_function(s, i, |a, b| if b == 0 { a } else { b })
 }
 fn boolean_with_saved_image_nor(s: &mut SolverState, i: usize) -> Res<()> {
     boolean_with_saved_image_function(s, i, |a, b| if a == 0 || b == 0 { 1 } else { 0 })
@@ -1578,6 +1582,7 @@ fn restore_grid(s: &mut SolverState) -> Res<()> {
         Ok(())
     })?;
     s.saved_lines.pop();
+    s.init_from_current_images();
     Ok(())
 }
 
@@ -2377,6 +2382,64 @@ fn delete_noise(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+/// Makes the image a square by expanding the canvas up and to the left.
+fn make_square_up_left(s: &mut SolverState, i: usize) -> Res<()> {
+    let (w, h) = s.width_and_height(i);
+    if h < w {
+        let mut new_image = vec![vec![0; w as usize]; w as usize];
+        tools::draw_image_at(&mut new_image, &s.images[i], tools::Vec2 { x: 0, y: w - h });
+        s.images[i] = new_image.into();
+        return Ok(());
+    } else if w < h {
+        let mut new_image = vec![vec![0; h as usize]; h as usize];
+        tools::draw_image_at(&mut new_image, &s.images[i], tools::Vec2 { x: h - w, y: 0 });
+        s.images[i] = new_image.into();
+        return Ok(());
+    }
+    Err("no change")
+}
+
+fn shrink_to_output_size_from_top_left(s: &mut SolverState, i: usize) -> Res<()> {
+    let (ow, oh) = s.output_width_and_height_all()?;
+    let (w, h) = s.width_and_height(i);
+    if w < ow || h < oh {
+        println!("{} < {} or {} < {}", w, ow, h, oh);
+        return Err("Output is larger");
+    } else if w == ow && h == oh {
+        return Err("no change");
+    }
+    let mut new_image = vec![vec![0; ow as usize]; oh as usize];
+    tools::draw_image_at(
+        &mut new_image,
+        &s.images[i],
+        tools::Vec2 {
+            x: ow - w,
+            y: oh - h,
+        },
+    );
+    s.images[i] = new_image.into();
+    Ok(())
+}
+
+fn recolor_shapes_to_selected_color(s: &mut SolverState, i: usize) -> Res<()> {
+    let new_color = s.colors[i][0];
+    let mut any_change = false;
+    for shapes in &mut s.shapes {
+        for shape in shapes {
+            let mut new_shape = (**shape).clone();
+            if shape.color() != new_color {
+                any_change = true;
+            }
+            new_shape.recolor(new_color);
+            *shape = new_shape.into();
+        }
+    }
+    if !any_change {
+        return Err("no change");
+    }
+    Ok(())
+}
+
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
@@ -2662,6 +2725,21 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_nand),
         step_all!(recolor_image_per_output),
+    ],
+    &[
+        // 26
+        step_all!(print_images_step),
+        step_each!(make_square_up_left),
+        step_each!(make_image_rotationally_symmetrical),
+        step_each!(shrink_to_output_size_from_top_left),
+        step_all!(refresh_from_image),
+        step_each!(discard_background_shapes),
+        step_each!(use_previous_color),
+        step_each!(recolor_shapes_to_selected_color),
+        step_each!(draw_shapes),
+        step_each!(boolean_with_saved_image_or),
+        step_all!(print_images_step),
+        step_all!(remap_colors_per_output),
     ],
     &[
         // 71
