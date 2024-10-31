@@ -571,6 +571,8 @@ impl SolverState {
     pub fn run_step(&mut self, step: &'static SolverStep) -> Res<()> {
         self.steps.push(step);
         if let Some(substates) = &mut self.substates {
+            let mut any_change = false;
+            let mut res = Ok(());
             for substate in substates {
                 let state = &mut substate.state;
                 state.images = substate
@@ -578,12 +580,18 @@ impl SolverState {
                     .iter()
                     .map(|&i| self.images[i].clone())
                     .collect();
-                state.run_step(&step)?;
-                for (i, &image_index) in substate.image_indexes.iter().enumerate() {
-                    self.images[image_index] = state.images[i].clone();
+                res = state.run_step(&step);
+                if res.is_ok() {
+                    any_change = true;
+                    for (i, &image_index) in substate.image_indexes.iter().enumerate() {
+                        self.images[image_index] = state.images[i].clone();
+                    }
                 }
             }
-            return Ok(());
+            if any_change {
+                return Ok(());
+            }
+            return res;
         }
         match step {
             SolverStep::Each(_name, f) => self.apply(f)?,
@@ -664,12 +672,9 @@ fn substates_for_each_shape(s: &mut SolverState) -> Res<()> {
 }
 
 fn substates_for_each_color(s: &mut SolverState) -> Res<()> {
-    if s.is_substate {
-        return Err(err!("already split into substates"));
-    }
     let used_colors = tools::get_used_colors(&s.images);
-    if used_colors.is_empty() {
-        return Err(err!("no colors"));
+    if used_colors.len() < 2 {
+        return Err(err!("not enough colors"));
     }
     s.substates = Some(
         used_colors
@@ -2346,6 +2351,26 @@ fn dots_to_lines(shapes: &Shapes, is_horizontal: &Vec<bool>, image: &mut Image) 
     }
 }
 
+/// Deletes a few pixels from colors that are otherwise unused.
+fn delete_noise(s: &mut SolverState, i: usize) -> Res<()> {
+    let cs = &s.colorsets[i];
+    let counts: Vec<usize> = cs.iter().map(|c| c.cells.len()).collect();
+    let total: usize = counts.iter().sum();
+    let small: Vec<&Rc<Shape>> = cs
+        .iter()
+        .filter(|shape| (**shape).cells.len() <= total / 8)
+        .collect();
+    if small.is_empty() {
+        return Err("no change");
+    }
+    let mut new_image = (*s.images[i]).clone();
+    for shape in small {
+        tools::erase_shape(&mut new_image, shape);
+    }
+    s.images[i] = new_image.into();
+    Ok(())
+}
+
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
@@ -2418,6 +2443,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(cover_image_with_shapes),
     step_each!(deduplicate_horizontally),
     step_each!(deduplicate_vertically),
+    step_each!(delete_noise),
     step_each!(discard_background_shapes),
     step_each!(discard_shapes_touching_border),
     step_each!(discard_small_shapes),
@@ -2613,6 +2639,17 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // 23
         step_all!(dots_to_lines_per_output),
+    ],
+    &[
+        // 24
+        step_each!(delete_noise),
+        step_all!(refresh_from_image),
+        step_all!(substates_for_each_image),
+        step_all!(substates_for_each_color),
+        step_each!(filter_shapes_by_color),
+        step_each!(order_shapes_by_size_decreasing),
+        step_all!(save_first_shape_use_the_rest),
+        step_each!(move_shapes_to_touch_saved_shape),
     ],
     &[
         // 71
