@@ -6,6 +6,7 @@ use std::fs;
 mod image;
 mod shape;
 mod solvers;
+mod steps;
 mod tools;
 use tools::{Example, Image, Task};
 
