@@ -31,7 +31,103 @@ pub const COLORS: [colored::Color; 12] = [
     colored::Color::Cyan,
 ];
 
-pub type Image = Vec<Vec<Color>>;
+#[derive(Clone, PartialEq, Eq)]
+pub struct Image {
+    pub width: usize,
+    pub height: usize,
+    pub pixels: Vec<Color>,
+}
+
+impl Image {
+    pub fn new(width: usize, height: usize) -> Image {
+        Image {
+            width,
+            height,
+            pixels: vec![0; width * height],
+        }
+    }
+    pub fn rows(&self) -> std::slice::Chunks<'_, Color> {
+        self.pixels.chunks(self.width)
+    }
+    pub fn is_empty(&self) -> bool {
+        self.width == 0 && self.height == 0
+    }
+    pub fn update(&mut self, f: impl Fn(usize, usize, Color) -> Color) {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                self[(x, y)] = f(x, y, self[(x, y)]);
+            }
+        }
+    }
+    #[must_use]
+    pub fn try_update(&mut self, f: impl Fn(usize, usize, Color) -> Res<Color>) -> Res<()> {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                self[(x, y)] = f(x, y, self[(x, y)])?;
+            }
+        }
+        Ok(())
+    }
+    pub fn get(&self, x: i32, y: i32) -> Res<Color> {
+        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+            return Err("out of bounds");
+        }
+        Ok(self[(x as usize, y as usize)])
+    }
+    pub fn get_or(&self, x: i32, y: i32, default: Color) -> Color {
+        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+            return default;
+        }
+        self[(x as usize, y as usize)]
+    }
+    #[must_use]
+    pub fn set(&mut self, x: i32, y: i32, color: Color) -> Res<()> {
+        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+            return Err("out of bounds");
+        }
+        self[(x as usize, y as usize)] = color;
+        Ok(())
+    }
+    pub fn print(&self) {
+        println!("{}", self);
+    }
+    pub fn from_vecvec(vecvec: Vec<Vec<Color>>) -> Image {
+        let height = vecvec.len();
+        let width = if height == 0 { 0 } else { vecvec[0].len() };
+        let mut image = Image::new(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                image[(x, y)] = vecvec[y][x];
+            }
+        }
+        image
+    }
+}
+
+impl std::ops::Index<(usize, usize)> for Image {
+    type Output = Color;
+    fn index<'a>(&'a self, (x, y): (usize, usize)) -> &'a Color {
+        &self.pixels[y * self.width + x]
+    }
+}
+
+impl std::ops::IndexMut<(usize, usize)> for Image {
+    fn index_mut<'a>(&'a mut self, (x, y): (usize, usize)) -> &'a mut Color {
+        &mut self.pixels[y * self.width + x]
+    }
+}
+impl std::fmt::Display for Image {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for row in self.rows() {
+            for cell in row {
+                write_color(f, *cell);
+            }
+            writeln!(f)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Task {
     pub id: String,
@@ -96,32 +192,31 @@ pub const DIRECTIONS8: [Vec2; 8] = [
     UP, DOWN, LEFT, RIGHT, UP_LEFT, UP_RIGHT, DOWN_LEFT, DOWN_RIGHT,
 ];
 
-pub fn print_color(color: i32) {
+pub fn write_color<W: std::fmt::Write>(f: &mut W, color: i32) {
     if color < 0 {
-        print!(" ");
+        write!(f, " ").unwrap();
     } else if color == 0 {
-        print!("{}", "·".color(colored::Color::Black));
+        write!(f, "{}", "·".color(colored::Color::Black)).unwrap();
     } else {
-        print!("{}", "█".color(COLORS[color as usize]));
+        write!(f, "{}", "█".color(COLORS[color as usize])).unwrap();
     }
 }
 
-pub fn print_image(image: &Image) {
-    for row in image.iter() {
-        for cell in row {
-            print_color(*cell);
-        }
-        println!();
+pub fn print_colors(colors: &[i32]) {
+    let mut buffer = String::new();
+    for &color in colors {
+        write_color(&mut buffer, color);
     }
+    println!("{}", buffer);
 }
 
 #[allow(dead_code)]
 pub fn print_example(example: &Example) {
     println!("Input:");
-    print_image(&example.input);
+    example.input.print();
     if !example.output.is_empty() {
         println!("Output:");
-        print_image(&example.output);
+        example.output.print();
     }
 }
 
@@ -137,27 +232,17 @@ pub fn print_task(task: &Task) {
     }
 }
 
-pub fn resize_canvas(image: &Image, width: usize, height: usize) -> Image {
-    let mut new_image = vec![vec![0; width]; height];
-    for y in 0..image.len().min(height) {
-        for x in 0..image[0].len().min(width) {
-            new_image[y][x] = image[y][x];
-        }
-    }
-    new_image
-}
-
 /// Each shape is a single color. Includes color 0.
 #[must_use]
 pub fn find_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>> {
     let mut shapes = vec![];
-    let mut visited = vec![vec![false; image[0].len()]; image.len()];
-    for y in 0..image.len() {
-        for x in 0..image[0].len() {
+    let mut visited = vec![vec![false; image.width]; image.height];
+    for y in 0..image.height {
+        for x in 0..image.width {
             if visited[y][x] {
                 continue;
             }
-            let color = image[y][x];
+            let color = image[(x, y)];
             let mut cells = vec![Pixel {
                 x: x as i32,
                 y: y as i32,
@@ -170,7 +255,7 @@ pub fn find_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>
                 for dir in directions {
                     let nx = x + dir.x;
                     let ny = y + dir.y;
-                    if let Ok(nc) = lookup_in_image(image, nx, ny) {
+                    if let Ok(nc) = image.get(nx, ny) {
                         if nc != color {
                             continue;
                         }
@@ -197,13 +282,13 @@ pub fn find_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>
 #[must_use]
 pub fn find_multicolor_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>> {
     let mut shapes = vec![];
-    let mut visited = vec![vec![false; image[0].len()]; image.len()];
-    for y in 0..image.len() {
-        for x in 0..image[0].len() {
+    let mut visited = vec![vec![false; image.width]; image.height];
+    for y in 0..image.height {
+        for x in 0..image.width {
             if visited[y][x] {
                 continue;
             }
-            let color = image[y][x];
+            let color = image[(x, y)];
             if color == 0 {
                 continue;
             }
@@ -219,7 +304,7 @@ pub fn find_multicolor_shapes_in_image(image: &Image, directions: &[Vec2]) -> Ve
                 for dir in directions {
                     let nx = x + dir.x;
                     let ny = y + dir.y;
-                    if let Ok(nc) = lookup_in_image(image, nx, ny) {
+                    if let Ok(nc) = image.get(nx, ny) {
                         if nc == 0 {
                             continue;
                         }
@@ -257,9 +342,9 @@ pub fn discard_background_shapes_touching_border(
 pub fn find_colorsets_in_image(image: &Image) -> Vec<Rc<Shape>> {
     // Create blank colorset for each color.
     let mut colorsets = vec![vec![]; COLORS.len()];
-    for y in 0..image.len() {
-        for x in 0..image[0].len() {
-            let color = image[y][x];
+    for y in 0..image.height {
+        for x in 0..image.width {
+            let color = image[(x, y)];
             if color == 0 {
                 continue;
             }
@@ -280,10 +365,10 @@ pub fn find_colorsets_in_image(image: &Image) -> Vec<Rc<Shape>> {
 
 pub fn find_horizontal_lines_in_image(image: &Image) -> Lines {
     let mut lines: Lines = vec![];
-    'outer: for y in 0..image.len() {
-        let color = image[y][0];
-        for x in 0..image[y].len() {
-            if image[y][x] != color {
+    'outer: for y in 0..image.height {
+        let color = image[(0, y)];
+        for x in 0..image.width {
+            if image[(x, y)] != color {
                 continue 'outer;
             }
         }
@@ -305,10 +390,10 @@ pub fn find_horizontal_lines_in_image(image: &Image) -> Lines {
 }
 pub fn find_vertical_lines_in_image(image: &Image) -> Lines {
     let mut lines: Lines = vec![];
-    'outer: for x in 0..image[0].len() {
-        let color = image[0][x];
-        for y in 0..image.len() {
-            if image[y][x] != color {
+    'outer: for x in 0..image.width {
+        let color = image[(x, 0)];
+        for y in 0..image.height {
+            if image[(x, y)] != color {
                 continue 'outer;
             }
         }
@@ -542,10 +627,10 @@ impl Shape {
         for Pixel { x, y, color } in &self.cells {
             let nx = x + vector.x;
             let ny = y + vector.y;
-            if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+            if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
                 continue;
             }
-            let icolor = image[ny as usize][nx as usize];
+            let icolor = image[(nx as usize, ny as usize)];
             if icolor == 0 {
                 continue;
             }
@@ -616,8 +701,8 @@ impl Shape {
 
     pub fn draw_where_non_empty(&self, image: &mut Image) {
         for Pixel { x, y, color } in &self.cells {
-            if lookup_in_image(image, *x, *y).unwrap_or(0) != 0 {
-                image[*y as usize][*x as usize] = *color;
+            if image.get_or(*x, *y, 0) != 0 {
+                image[(*x as usize, *y as usize)] = *color;
             }
         }
     }
@@ -632,9 +717,9 @@ impl Shape {
     #[must_use]
     pub fn from_image(image: &Image) -> Shape {
         let mut cells = vec![];
-        for x in 0..image[0].len() {
-            for y in 0..image.len() {
-                let color = image[y][x];
+        for x in 0..image.width {
+            for y in 0..image.height {
+                let color = image[(x, y)];
                 cells.push(Pixel {
                     x: x as i32,
                     y: y as i32,
@@ -648,8 +733,7 @@ impl Shape {
     #[must_use]
     pub fn is_touching_border(&self, image: &Image) -> bool {
         for Pixel { x, y, color: _ } in &self.cells {
-            if *x == 0 || *y == 0 || *x == image[0].len() as i32 - 1 || *y == image.len() as i32 - 1
-            {
+            if *x == 0 || *y == 0 || *x == image.width as i32 - 1 || *y == image.height as i32 - 1 {
                 return true;
             }
         }
@@ -659,12 +743,7 @@ impl Shape {
     #[allow(dead_code)]
     pub fn print(&self) {
         println!("top left: {}, {}", self.bb.left, self.bb.top);
-        for y in self.bb.top..=self.bb.bottom {
-            for x in self.bb.left..=self.bb.right {
-                print_color(self.color_at(x, y).unwrap_or(-1));
-            }
-            println!();
-        }
+        println!("{}", self.as_image());
     }
 
     pub fn use_relative_colors(&mut self, reverse_colors: &[i32]) {
@@ -715,9 +794,9 @@ impl Shape {
 
     #[must_use]
     pub fn as_image(&self) -> Image {
-        let mut image = vec![vec![0; self.bb.width() as usize]; self.bb.height() as usize];
+        let mut image = Image::new(self.bb.width() as usize, self.bb.height() as usize);
         for Pixel { x, y, color } in &self.cells {
-            image[(y - self.bb.top) as usize][(x - self.bb.left) as usize] = *color;
+            image[((x - self.bb.left) as usize, (y - self.bb.top) as usize)] = *color;
         }
         image
     }
@@ -759,48 +838,43 @@ pub fn reverse_colors(colors: &[i32]) -> Vec<i32> {
 
 pub fn map_colors_in_image(image: &Image, colors_before: &[i32], colors_after: &[i32]) -> Image {
     let reversed_before = reverse_colors(colors_before);
-    image
-        .iter()
-        .map(|row| {
-            row.iter()
-                .map(|&color| colors_after[reversed_before[color as usize] as usize])
-                .collect()
-        })
-        .collect()
+    let mut new_image = image.clone();
+    new_image.update(|_x, _y, color| colors_after[reversed_before[color as usize] as usize]);
+    new_image
 }
 
 /// Draws the image in the given color.
 pub fn paint_shape(image: &mut Image, shape: &Shape, color: i32) {
     for Pixel { x, y, color: _ } in &shape.cells {
-        if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
+        if *x < 0 || *y < 0 || *x >= image.width as i32 || *y >= image.height as i32 {
             continue;
         }
-        image[*y as usize][*x as usize] = color;
+        image[(*x as usize, *y as usize)] = color;
     }
 }
 
 pub fn crop_image(image: &Image, left: i32, top: i32, width: i32, height: i32) -> Image {
-    let mut new_image = vec![vec![0; width as usize]; height as usize];
+    let mut new_image = Image::new(width as usize, height as usize);
     for y in 0..height {
         for x in 0..width {
             let nx = left + x;
             let ny = top + y;
-            if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+            if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
                 continue;
             }
-            new_image[y as usize][x as usize] = image[ny as usize][nx as usize];
+            new_image[(x as usize, y as usize)] = image[(nx as usize, ny as usize)];
         }
     }
     new_image
 }
 
 pub fn a_matches_b_where_a_is_not_transparent(a: &Image, b: &Image) -> bool {
-    if a.len() != b.len() || a[0].len() != b[0].len() {
+    if a.width != b.width || a.height != b.height {
         return false;
     }
-    for y in 0..a.len() {
-        for x in 0..a[0].len() {
-            if a[y][x] != 0 && a[y][x] != b[y][x] {
+    for y in 0..a.height {
+        for x in 0..a.width {
+            if a[(x, y)] != 0 && a[(x, y)] != b[(x, y)] {
                 return false;
             }
         }
@@ -814,36 +888,37 @@ pub fn erase_shape(image: &mut Image, shape: &Shape) {
 /// Draws the shape in its original color.
 pub fn draw_shape(image: &mut Image, shape: &Shape) {
     for Pixel { x, y, color } in &shape.cells {
-        if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
+        if *x < 0 || *y < 0 || *x >= image.width as i32 || *y >= image.height as i32 {
             continue;
         }
-        image[*y as usize][*x as usize] = *color;
+        image[(*x as usize, *y as usize)] = *color;
     }
 }
 
 pub fn draw_shape_with_colors(image: &mut Image, shape: &Shape, colors: &[i32]) {
     for Pixel { x, y, color } in &shape.cells {
-        if *x < 0 || *y < 0 || *x >= image[0].len() as i32 || *y >= image.len() as i32 {
+        if *x < 0 || *y < 0 || *x >= image.width as i32 || *y >= image.height as i32 {
             continue;
         }
-        image[*y as usize][*x as usize] = colors[*color as usize];
+        image[(*x as usize, *y as usize)] = colors[*color as usize];
     }
 }
 
 pub fn draw_image_at(image: &mut Image, other: &Image, pos: Vec2) {
-    for y in 0..other.len() {
-        for x in 0..other[0].len() {
+    for y in 0..other.height {
+        for x in 0..other.width {
             let nx = pos.x + x as i32;
             let ny = pos.y + y as i32;
-            if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+            if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
                 continue;
             }
-            image[ny as usize][nx as usize] = other[y as usize][x as usize];
+            image[(nx as usize, ny as usize)] = other[(x as usize, y as usize)];
         }
     }
 }
 
 // Moves the first shape pixel by pixel. (Not using bounding boxes.)
+#[must_use]
 pub fn move_shape_to_shape_in_direction(
     image: &Image,
     to_move: &Shape,
@@ -862,10 +937,10 @@ pub fn move_shape_to_shape_in_direction(
             break;
         }
         distance += 1;
-        if (dir == UP || dir == DOWN) && distance >= image.len() as i32 {
+        if (dir == UP || dir == DOWN) && distance >= image.height as i32 {
             return Err("never touched");
         }
-        if (dir == LEFT || dir == RIGHT) && distance >= image[0].len() as i32 {
+        if (dir == LEFT || dir == RIGHT) && distance >= image.width as i32 {
             return Err("never touched");
         }
     }
@@ -880,6 +955,7 @@ pub fn move_shape_to_shape_in_direction(
 }
 
 // Moves the first shape in a cardinal direction until it touches the second shape.
+#[must_use]
 pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Shape) -> Res<Image> {
     // Find the moving direction.
     if to_move.bb.right < move_to.bb.left {
@@ -900,19 +976,20 @@ pub struct ShapePlacement {
     pub match_count: usize,
 }
 /// Finds the best placement with just translation.
+#[must_use]
 pub fn place_shape(image: &Image, shape: &Shape) -> Res<ShapePlacement> {
     let mut best_placement = ShapePlacement {
         pos: Vec2::ZERO,
         match_count: 0,
     };
-    for y in (-shape.bb.height() + 1)..image.len() as i32 {
-        for x in (-shape.bb.width() + 1)..image[0].len() as i32 {
+    for y in (-shape.bb.height() + 1)..image.height as i32 {
+        for x in (-shape.bb.width() + 1)..image.width as i32 {
             let pos = Vec2 { x, y };
             let mut match_count = 0;
             for Pixel { x, y, color } in &shape.cells {
                 let ix = pos.x + x - shape.bb.left;
                 let iy = pos.y + y - shape.bb.top;
-                if let Ok(ic) = lookup_in_image(image, ix, iy) {
+                if let Ok(ic) = image.get(ix, iy) {
                     if ic == *color {
                         match_count += 1;
                     }
@@ -943,15 +1020,11 @@ pub fn lookup_in_2d<T: Copy>(image: &Vec<Vec<T>>, x: i32, y: i32) -> Res<T> {
     Ok(image[y as usize][x as usize])
 }
 
-pub fn lookup_in_image(image: &Image, x: i32, y: i32) -> Res<i32> {
-    lookup_in_2d(image, x, y)
-}
-
 pub fn set_in_image(image: &mut Image, x: i32, y: i32, color: i32) {
-    if x < 0 || y < 0 || x >= image[0].len() as i32 || y >= image.len() as i32 {
+    if x < 0 || y < 0 || x >= image.width as i32 || y >= image.height as i32 {
         return;
     }
-    image[y as usize][x as usize] = color;
+    image[(x as usize, y as usize)] = color;
 }
 pub fn get_pattern_with_radius(
     images: &[Rc<Image>],
@@ -986,7 +1059,7 @@ pub fn get_pattern_in_rect(
                     {
                         continue;
                     }
-                    if let Ok(color) = lookup_in_image(image, nx, ny) {
+                    if let Ok(color) = image.get(nx, ny) {
                         if agreement == -1 {
                             agreement = color;
                         } else if agreement != color {
@@ -1010,7 +1083,7 @@ pub fn get_pattern_in_rect(
 
 pub fn find_pattern_in_square(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
     let mut last_pattern: Option<Shape> = None;
-    for radius in 1..images[0].len() as i32 {
+    for radius in 1..images[0].height as i32 {
         let p = get_pattern_with_radius(&images, &dots, radius)?;
         if let Some(last_pattern) = last_pattern {
             // No improvement. We're done.
@@ -1025,7 +1098,7 @@ pub fn find_pattern_in_square(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<
 
 pub fn find_pattern_horizontally(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
     let mut last_pattern: Option<Shape> = None;
-    for radius in 1..images[0][0].len() as i32 {
+    for radius in 1..images[0].width as i32 {
         let p = get_pattern_in_rect(&images, &dots, -radius, radius, 0, 0)?;
         if let Some(last_pattern) = last_pattern {
             // No improvement. We're done.
@@ -1040,7 +1113,7 @@ pub fn find_pattern_horizontally(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> R
 
 pub fn find_pattern_vertically(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
     let mut last_pattern: Option<Shape> = None;
-    for radius in 1..images[0].len() as i32 {
+    for radius in 1..images[0].height as i32 {
         let p = get_pattern_in_rect(&images, &dots, 0, 0, -radius, radius)?;
         if let Some(last_pattern) = last_pattern {
             // No improvement. We're done.
@@ -1057,10 +1130,10 @@ pub fn draw_shape_at(image: &mut Image, shape: &Shape, pos: Vec2) {
     for Pixel { x, y, color } in &shape.cells {
         let nx = pos.x + x;
         let ny = pos.y + y;
-        if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+        if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
             continue;
         }
-        image[ny as usize][nx as usize] = *color;
+        image[(nx as usize, ny as usize)] = *color;
     }
 }
 
@@ -1073,18 +1146,16 @@ pub fn draw_shape_with_relative_colors_at(
     for Pixel { x, y, color } in &shape.cells {
         let nx = pos.x + x;
         let ny = pos.y + y;
-        if nx < 0 || ny < 0 || nx >= image[0].len() as i32 || ny >= image.len() as i32 {
+        if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
             continue;
         }
-        image[ny as usize][nx as usize] = colors[*color as usize];
+        image[(nx as usize, ny as usize)] = colors[*color as usize];
     }
 }
 
 pub fn count_colors_in_image(image: &Image, counts: &mut Vec<usize>) {
-    for row in &**image {
-        for &c in row {
-            counts[c as usize] += 1;
-        }
+    for c in &image.pixels {
+        counts[*c as usize] += 1;
     }
 }
 
@@ -1119,15 +1190,15 @@ pub fn add_remaining_colors(colors: &[i32]) -> Vec<i32> {
 
 pub fn scale_up_image(image: &Image, ratio: Vec2) -> Image {
     let (rx, ry) = (ratio.x as usize, ratio.y as usize);
-    let height = image.len() * ry;
-    let width = image[0].len() * rx;
-    let mut new_image = vec![vec![0; width]; height];
-    for y in 0..image.len() {
-        for x in 0..image[0].len() {
-            let color = image[y][x];
+    let height = image.height * ry;
+    let width = image.width * rx;
+    let mut new_image = Image::new(width, height);
+    for y in 0..image.height {
+        for x in 0..image.width {
+            let color = image[(x, y)];
             for dy in 0..ry {
                 for dx in 0..rx {
-                    new_image[y * ry + dy][x * rx + dx] = color;
+                    new_image[(x * rx + dx, y * ry + dy)] = color;
                 }
             }
         }
@@ -1136,37 +1207,20 @@ pub fn scale_up_image(image: &Image, ratio: Vec2) -> Image {
 }
 
 pub fn tile_image(image: &Image, repeat_x: usize, repeat_y: usize) -> Image {
-    let height = image.len();
-    let width = image[0].len();
-    let mut new_image = vec![vec![0; width * repeat_x]; height * repeat_y];
-    for y in 0..image.len() {
-        for x in 0..image[0].len() {
-            let color = image[y][x];
+    let height = image.height;
+    let width = image.width;
+    let mut new_image = Image::new(width * repeat_x, height * repeat_y);
+    for y in 0..image.height {
+        for x in 0..image.width {
+            let color = image[(x, y)];
             for dy in 0..repeat_y {
                 for dx in 0..repeat_x {
-                    new_image[y + dy * height][x + dx * width] = color;
+                    new_image[(x + dx * width, y + dy * height)] = color;
                 }
             }
         }
     }
     new_image
-}
-
-pub fn compare_images(a: &Image, b: &Image) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    for (row_a, row_b) in a.iter().zip(b) {
-        if row_a.len() != row_b.len() {
-            return false;
-        }
-        for (cell_a, cell_b) in row_a.iter().zip(row_b) {
-            if cell_a != cell_b {
-                return false;
-            }
-        }
-    }
-    true
 }
 
 /// Given a grid of lines, returns the images that are separated by the lines.
@@ -1179,7 +1233,7 @@ pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
             lines.horizontal[y - 1].pos + lines.horizontal[y - 1].width as i32
         };
         let end_y = if y == lines.horizontal.len() {
-            image.len() as i32
+            image.height as i32
         } else {
             lines.horizontal[y].pos
         };
@@ -1193,7 +1247,7 @@ pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
                 lines.vertical[x - 1].pos + lines.vertical[x - 1].width as i32
             };
             let end_x = if x == lines.vertical.len() {
-                image[0].len() as i32
+                image.width as i32
             } else {
                 lines.vertical[x].pos
             };
@@ -1209,15 +1263,15 @@ pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
 
 /// Returns the number of non-zero pixels in the image.
 pub fn count_non_zero_pixels(image: &Image) -> usize {
-    image.iter().flatten().filter(|&&cell| cell != 0).count()
+    image.pixels.iter().filter(|&&cell| cell != 0).count()
 }
 
 pub fn width_and_height(image: &Image) -> (i32, i32) {
-    let height = image.len() as i32;
+    let height = image.height as i32;
     if height == 0 {
         return (0, 0);
     }
-    let width = image[0].len() as i32;
+    let width = image.width as i32;
     (width, height)
 }
 
@@ -1246,10 +1300,10 @@ pub fn rotate_image(image: &Image, direction: Rotation) -> Image {
 /// Rotates the image 90 degrees clockwise.
 fn rotate_image_cw(image: &Image) -> Image {
     let (width, height) = width_and_height(image);
-    let mut new_image = vec![vec![0; height as usize]; width as usize];
+    let mut new_image = Image::new(height as usize, width as usize);
     for y in 0..height {
         for x in 0..width {
-            new_image[x as usize][(height - y - 1) as usize] = image[y as usize][x as usize];
+            new_image[((height - y - 1) as usize, x as usize)] = image[(x as usize, y as usize)];
         }
     }
     new_image
@@ -1258,15 +1312,16 @@ fn rotate_image_cw(image: &Image) -> Image {
 /// Rotates the image 90 degrees counterclockwise.
 fn rotate_image_ccw(image: &Image) -> Image {
     let (width, height) = width_and_height(image);
-    let mut new_image = vec![vec![0; height as usize]; width as usize];
+    let mut new_image = Image::new(height as usize, width as usize);
     for y in 0..height {
         for x in 0..width {
-            new_image[(width - x - 1) as usize][y as usize] = image[y as usize][x as usize];
+            new_image[(y as usize, (width - x - 1) as usize)] = image[(x as usize, y as usize)];
         }
     }
     new_image
 }
 
+#[must_use]
 pub fn blend_if_same_color(a: i32, b: i32) -> Res<i32> {
     if a == 0 {
         Ok(b)

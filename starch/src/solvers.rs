@@ -337,14 +337,8 @@ impl SolverState {
         if self.images.iter().any(|image| image.is_empty()) {
             return Err("empty image");
         }
-        if self.images.iter().any(|image| image[0].is_empty()) {
-            return Err("empty image");
-        }
         if !self.output_images.is_empty() {
             if self.output_images.iter().any(|image| image.is_empty()) {
-                return Err("empty output image");
-            }
-            if self.output_images.iter().any(|image| image[0].is_empty()) {
                 return Err("empty output image");
             }
         }
@@ -471,7 +465,7 @@ impl SolverState {
     #[allow(dead_code)]
     fn print_images(&self) {
         for image in &self.images {
-            tools::print_image(image);
+            image.print();
             println!();
         }
     }
@@ -479,9 +473,7 @@ impl SolverState {
     #[allow(dead_code)]
     fn print_colors(&self) {
         for colors in &self.colors {
-            for color in colors {
-                tools::print_color(*color);
-            }
+            tools::print_colors(colors);
             println!();
         }
     }
@@ -608,7 +600,7 @@ impl SolverState {
         self.images[..self.task.train.len()]
             .iter()
             .zip(self.output_images.iter())
-            .all(|(image, output)| tools::compare_images(image, output))
+            .all(|(image, output)| image == output)
     }
 
     pub fn add_finishing_step(&mut self, f: impl Fn(&mut SolverState) -> Res<()> + 'static) {
@@ -741,13 +733,30 @@ fn move_shapes_to_touch_saved_shape(s: &mut SolverState, i: usize) -> Res<()> {
 fn scale_up_image(s: &mut SolverState) -> Res<()> {
     must_not_be_empty!(&s.output_images);
     // Find ratio from looking at example outputs.
-    let output_size = s.output_images[0].len() as i32;
-    let input_size = s.images[0].len() as i32;
-    if output_size % input_size != 0 {
-        return Err(err!("output size must be a multiple of input size"));
+    let output_width = s.output_images[0].width as i32;
+    let input_width = s.images[0].width as i32;
+    if output_width % input_width != 0 {
+        return Err(err!("output width must be a multiple of input width"));
     }
-    let scale = output_size / input_size;
-    s.scale_up = tools::Vec2 { x: scale, y: scale };
+    let scale_x = output_width / input_width;
+    let output_height = s.output_images[0].height as i32;
+    let input_height = s.images[0].height as i32;
+    if output_height % input_height != 0 {
+        return Err(err!("output height must be a multiple of input height"));
+    }
+    let scale_y = output_height / input_height;
+    s.scale_up = tools::Vec2 {
+        x: scale_x,
+        y: scale_y,
+    };
+    // Check that the same ratio applies to all images.
+    for (image, output) in s.images.iter().zip(&s.output_images) {
+        if image.width as i32 * scale_x != output.width as i32
+            || image.height as i32 * scale_y != output.height as i32
+        {
+            return Err(err!("scaling is not consistent"));
+        }
+    }
     s.apply(|s: &mut SolverState, i: usize| {
         s.images[i] = Rc::new(tools::scale_up_image(&s.images[i], s.scale_up));
         Ok(())
@@ -795,14 +804,26 @@ fn scale_up_image_add_grid(s: &mut SolverState) -> Res<()> {
 fn tile_image(s: &mut SolverState) -> Res<()> {
     must_not_be_empty!(&s.output_images);
     // Find ratio from looking at example outputs.
-    let output_size = s.output_images[0].len();
-    let input_size = s.images[0].len();
-    if output_size % input_size != 0 {
-        return Err(err!("output size must be a multiple of input size"));
+    let output_width = s.output_images[0].width;
+    let input_width = s.images[0].width;
+    if output_width % input_width != 0 {
+        return Err(err!("output width must be a multiple of input width"));
     }
-    let scale = output_size / input_size;
+    let scale_x = output_width / input_width;
+    let output_height = s.output_images[0].height;
+    let input_height = s.images[0].height;
+    if output_height % input_height != 0 {
+        return Err(err!("output height must be a multiple of input height"));
+    }
+    let scale_y = output_height / input_height;
+    // Check that the same ratio applies to all images.
+    for (image, output) in s.images.iter().zip(&s.output_images) {
+        if image.width * scale_x != output.width || image.height * scale_y != output.height {
+            return Err(err!("scaling is not consistent"));
+        }
+    }
     s.apply(|s: &mut SolverState, i: usize| {
-        s.images[i] = Rc::new(tools::tile_image(&s.images[i], scale, scale));
+        s.images[i] = Rc::new(tools::tile_image(&s.images[i], scale_x, scale_y));
         Ok(())
     })
 }
@@ -865,9 +886,7 @@ fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
     let shapes = &s.shapes[0];
     let colors: Res<Vec<i32>> = shapes
         .iter()
-        .map(|shape| {
-            tools::lookup_in_image(&s.output_images[0], shape.cells[0].x, shape.cells[0].y)
-        })
+        .map(|shape| s.output_images[0].get(shape.cells[0].x, shape.cells[0].y))
         .collect();
     let mut colors = colors?;
     if colors.is_empty() {
@@ -878,7 +897,7 @@ fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
     for (i, image) in s.output_images.iter_mut().enumerate() {
         for (j, shape) in &mut s.shapes[i].iter().enumerate() {
             let cell = &shape.cells[0];
-            if let Ok(c) = tools::lookup_in_image(image, cell.x, cell.y) {
+            if let Ok(c) = image.get(cell.x, cell.y) {
                 if all_same_color {
                     if c != colors[0] {
                         return Err(err!("output shapes have different colors"));
@@ -1003,11 +1022,7 @@ fn use_output_size(s: &mut SolverState) -> Res<()> {
         }
     }
     s.apply(|s: &mut SolverState, i: usize| {
-        s.images[i] = Rc::new(tools::resize_canvas(
-            &s.images[i],
-            output_width as usize,
-            output_height as usize,
-        ));
+        s.images[i] = Rc::new(Image::new(output_width as usize, output_height as usize));
         Ok(())
     })
 }
@@ -1272,11 +1287,11 @@ fn boolean_with_saved_image_function(
         return Err(err!("images have different sizes"));
     }
     let mut new_image: Image = (*s.images[i]).clone();
-    for i in 0..new_image.len() {
-        for j in 0..new_image[0].len() {
-            let a = new_image[i][j];
-            let b = saved_image[i][j];
-            new_image[i][j] = func(a, b);
+    for y in 0..new_image.height {
+        for x in 0..new_image.width {
+            let a = new_image[(x, y)];
+            let b = saved_image[(x, y)];
+            new_image[(x, y)] = func(a, b);
         }
     }
     s.images[i] = Rc::new(new_image);
@@ -1290,15 +1305,9 @@ fn recolor_image_per_output(s: &mut SolverState) -> Res<()> {
     }
     let color = used_colors[0];
     for image in &mut s.images {
-        let new_image = image
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|&c| if c == 0 { 0 } else { color })
-                    .collect()
-            })
-            .collect();
-        *image = Rc::new(new_image);
+        let mut new_image: Image = (**image).clone();
+        new_image.update(|_x, _y, c| if c == 0 { 0 } else { color });
+        *image = new_image.into();
     }
     Ok(())
 }
@@ -1462,12 +1471,13 @@ fn remove_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
                 break;
             }
         }
-        new_image.push(image[y as usize].clone());
+        let start = y as usize * image.width;
+        new_image.push(image.pixels[start..start + image.width].to_vec());
     }
     if new_image.len() == 0 {
         return Err(err!("nothing left"));
     }
-    s.images[i] = Rc::new(new_image);
+    s.images[i] = Rc::new(Image::from_vecvec(new_image));
     Ok(())
 }
 
@@ -1493,14 +1503,14 @@ fn remove_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
                     break;
                 }
             }
-            row.push(image[y as usize][x as usize]);
+            row.push(image[(x as usize, y as usize)]);
         }
         if row.len() == 0 {
             return Err(err!("nothing left"));
         }
         new_image.push(row);
     }
-    s.images[i] = Rc::new(new_image);
+    s.images[i] = Rc::new(Image::from_vecvec(new_image));
     Ok(())
 }
 
@@ -1541,10 +1551,11 @@ fn insert_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
             line_i += 1;
         }
         if y < height {
-            new_image.push(image[y as usize].clone());
+            let start = y as usize * image.width;
+            new_image.push(image.pixels[start..start + image.width].to_vec());
         }
     }
-    s.images[i] = Rc::new(new_image);
+    s.images[i] = Rc::new(Image::from_vecvec(new_image));
     Ok(())
 }
 
@@ -1565,12 +1576,12 @@ fn insert_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
                 line_i += 1;
             }
             if x < width {
-                row.push(image[y as usize][x as usize]);
+                row.push(image[(x as usize, y as usize)]);
             }
         }
         new_image.push(row);
     }
-    s.images[i] = Rc::new(new_image);
+    s.images[i] = Rc::new(Image::from_vecvec(new_image));
     Ok(())
 }
 
@@ -1596,10 +1607,7 @@ fn connect_aligned_pixels_in_shapes(s: &mut SolverState, i: usize) -> Res<()> {
                 for distance in 1..10 {
                     let image_pos = *cell + distance * dir;
                     let shape_pos = image_pos - bb.top_left();
-                    if tools::lookup_in_image(&shape_as_image, shape_pos.x, shape_pos.y)
-                        .unwrap_or(0)
-                        != 0
-                    {
+                    if shape_as_image.get_or(shape_pos.x, shape_pos.y, 0) != 0 {
                         for d in 1..distance {
                             let pos = *cell + d * dir;
                             tools::set_in_image(&mut new_image, pos.x, pos.y, cell.color);
@@ -1869,8 +1877,8 @@ fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
         }
         for y in 0..h {
             for x in 0..w {
-                let input_color = input[y as usize][x as usize];
-                let output_color = output[y as usize][x as usize];
+                let input_color = input[(x as usize, y as usize)];
+                let output_color = output[(x as usize, y as usize)];
                 if color_map[input_color as usize] == -1 {
                     color_map[input_color as usize] = output_color;
                 } else if color_map[input_color as usize] != output_color {
@@ -1879,20 +1887,18 @@ fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
             }
         }
     }
-    let mut new_images: ImagePerExample = vec![];
-    for i in 0..s.images.len() {
-        let mut new_image = vec![];
-        for row in &*s.images[i] {
-            let mut new_row = vec![];
-            for &cell in row {
-                let c = color_map[cell as usize];
-                new_row.push(if c == -1 { cell } else { c });
+    for image in &mut s.images {
+        let mut new_image = (**image).clone();
+        new_image.update(|_x, _y, cell| {
+            let c = color_map[cell as usize];
+            if c == -1 {
+                cell
+            } else {
+                c
             }
-            new_image.push(new_row);
-        }
-        new_images.push(new_image.into());
+        });
+        *image = new_image.into();
     }
-    s.images = new_images;
     Ok(())
 }
 
@@ -2030,47 +2036,39 @@ fn keep_only_border_lines(s: &mut SolverState, i: usize) -> Res<()> {
 
 fn make_image_symmetrical(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &s.images[i];
-    let (width, height) = s.width_and_height(i);
-    let mut new_image = vec![];
-    for y in 0..height {
-        let mut row = vec![];
-        for x in 0..width {
-            let mut c = image[y as usize][x as usize];
-            c = tools::blend_if_same_color(c, image[y as usize][(width - 1 - x) as usize])?;
-            c = tools::blend_if_same_color(c, image[(height - 1 - y) as usize][x as usize])?;
-            c = tools::blend_if_same_color(
-                c,
-                image[(height - 1 - y) as usize][(width - 1 - x) as usize],
-            )?;
-            row.push(c);
-        }
-        new_image.push(row);
-    }
+    let mut new_image = (**image).clone();
+    new_image.try_update(|x, y, mut c| {
+        c = tools::blend_if_same_color(c, image[((image.width - 1 - x) as usize, y as usize)])?;
+        c = tools::blend_if_same_color(c, image[(x as usize, (image.height - 1 - y) as usize)])?;
+        tools::blend_if_same_color(
+            c,
+            image[(
+                (image.width - 1 - x) as usize,
+                (image.height - 1 - y) as usize,
+            )],
+        )
+    });
     s.images[i] = new_image.into();
     Ok(())
 }
 
 fn make_image_rotationally_symmetrical(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &s.images[i];
-    let (width, height) = s.width_and_height(i);
-    if width != height {
+    if image.width != image.height {
         return Err(err!("image not square"));
     }
-    let mut new_image = vec![];
-    for y in 0..height {
-        let mut row = vec![];
-        for x in 0..width {
-            let mut c = image[y as usize][x as usize];
-            c = tools::blend_if_same_color(c, image[x as usize][(height - 1 - y) as usize])?;
-            c = tools::blend_if_same_color(
-                c,
-                image[(height - 1 - y) as usize][(width - 1 - x) as usize],
-            )?;
-            c = tools::blend_if_same_color(c, image[(width - 1 - x) as usize][y as usize])?;
-            row.push(c);
-        }
-        new_image.push(row);
-    }
+    let mut new_image = (**image).clone();
+    new_image.try_update(|x, y, mut c| {
+        c = tools::blend_if_same_color(c, image[((image.height - 1 - y) as usize, x as usize)])?;
+        c = tools::blend_if_same_color(
+            c,
+            image[(
+                (image.width - 1 - x) as usize,
+                (image.height - 1 - y) as usize,
+            )],
+        )?;
+        tools::blend_if_same_color(c, image[(y as usize, (image.width - 1 - x) as usize)])
+    })?;
     s.images[i] = new_image.into();
     Ok(())
 }
@@ -2083,7 +2081,7 @@ fn deduplicate_horizontally(s: &mut SolverState, i: usize) -> Res<()> {
     is_duplicate[0] = false;
     for x in 1..width {
         for y in 0..height {
-            if image[y as usize][x as usize] != image[y as usize][(x - 1) as usize] {
+            if image[(x as usize, y as usize)] != image[((x - 1) as usize, y as usize)] {
                 is_duplicate[x as usize] = false;
                 break;
             }
@@ -2097,12 +2095,12 @@ fn deduplicate_horizontally(s: &mut SolverState, i: usize) -> Res<()> {
         let mut row = vec![];
         for x in 0..width {
             if !is_duplicate[x as usize] {
-                row.push(image[y as usize][x as usize]);
+                row.push(image[(x as usize, y as usize)]);
             }
         }
         new_image.push(row);
     }
-    s.images[i] = new_image.into();
+    s.images[i] = Image::from_vecvec(new_image).into();
     Ok(())
 }
 
@@ -2114,7 +2112,7 @@ fn deduplicate_vertically(s: &mut SolverState, i: usize) -> Res<()> {
     is_duplicate[0] = false;
     for y in 1..height {
         for x in 0..width {
-            if image[y as usize][x as usize] != image[(y - 1) as usize][x as usize] {
+            if image[(x as usize, y as usize)] != image[(x as usize, (y - 1) as usize)] {
                 is_duplicate[y as usize] = false;
                 break;
             }
@@ -2126,30 +2124,26 @@ fn deduplicate_vertically(s: &mut SolverState, i: usize) -> Res<()> {
     let mut new_image = vec![];
     for y in 0..height {
         if !is_duplicate[y as usize] {
-            new_image.push(image[y as usize].clone());
+            let start = y as usize * image.width;
+            new_image.push(image.pixels[start..start + image.width].to_vec());
         }
     }
-    s.images[i] = new_image.into();
+    s.images[i] = Image::from_vecvec(new_image).into();
     Ok(())
 }
 
 fn make_common_output_image(s: &mut SolverState) -> Res<()> {
-    let (width, height) = s.output_width_and_height_all()?;
-    let mut new_output_image = vec![];
-    for y in 0..height as usize {
-        let mut row = vec![];
-        for x in 0..width as usize {
-            let mut c = s.output_images[0][y][x];
-            for i in 1..s.output_images.len() {
-                if c != s.output_images[i][y][x] {
-                    c = 0;
-                    break;
-                }
+    s.output_width_and_height_all()?;
+    let mut new_output_image = (*s.output_images[0]).clone();
+    new_output_image.update(|x, y, mut c| {
+        for i in 1..s.output_images.len() {
+            if c != s.output_images[i][(x, y)] {
+                c = 0;
+                break;
             }
-            row.push(c);
         }
-        new_output_image.push(row);
-    }
+        c
+    });
     let new_output_image: Rc<Image> = new_output_image.into();
     s.images = s.images.iter().map(|_| new_output_image.clone()).collect();
     Ok(())
@@ -2187,11 +2181,8 @@ fn cover_image_with_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let mut state = CoverageState {
         image: image.clone(),
         shapes: shapes.clone(),
-        is_covered: vec![vec![false; image[0].len()]; image.len()],
-        still_uncovered: image
-            .iter()
-            .map(|row| row.iter().filter(|&&c| c != 0).count())
-            .sum(),
+        is_covered: vec![vec![false; image.width]; image.height],
+        still_uncovered: image.pixels.iter().filter(|&&c| c != 0).count(),
         placements: vec![],
         budget: 1000,
     };
@@ -2220,9 +2211,7 @@ fn cover_image_with_shapes_recursive(mut state: &mut CoverageState, min_y: i32) 
                 }
                 // Check if it can be placed here.
                 for cell in &shape.cells {
-                    if tools::lookup_in_image(&state.image, cell.x + x, cell.y + y).unwrap_or(0)
-                        == 0
-                    {
+                    if state.image.get_or(cell.x + x, cell.y + y, 0) == 0 {
                         continue 'next;
                     }
                     if state.is_covered[(cell.y + y) as usize][(cell.x + x) as usize] {
@@ -2301,12 +2290,12 @@ fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
                     return Err(err!("shape out of bounds"));
                 }
                 for ix in 0..w {
-                    if image[y as usize][ix as usize] == color {
+                    if image[(ix as usize, y as usize)] == color {
                         horizontal_count[color as usize] += 1;
                     }
                 }
                 for iy in 0..h {
-                    if image[iy as usize][x as usize] == color {
+                    if image[(x as usize, iy as usize)] == color {
                         vertical_count[color as usize] += 1;
                     }
                 }
@@ -2326,7 +2315,7 @@ fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
             let mut shapes = s.shapes[i].clone();
             shapes.sort_by_key(|s| reverse_colors[s.color() as usize]);
             let (w, h) = tools::width_and_height(image);
-            let mut new_image = vec![vec![0; w as usize]; h as usize];
+            let mut new_image = Image::new(w as usize, h as usize);
             dots_to_lines(&shapes, &is_horizontal, &mut new_image);
             if !tools::a_matches_b_where_a_is_not_transparent(&new_image, image) {
                 continue 'order;
@@ -2351,11 +2340,11 @@ fn dots_to_lines(shapes: &Shapes, is_horizontal: &Vec<bool>, image: &mut Image) 
         for &tools::Pixel { x, y, color } in &shape.cells {
             if is_horizontal[color as usize] {
                 for ix in 0..w {
-                    image[y as usize][ix as usize] = color;
+                    image[(ix as usize, y as usize)] = color;
                 }
             } else {
                 for iy in 0..h {
-                    image[iy as usize][x as usize] = color;
+                    image[(x as usize, iy as usize)] = color;
                 }
             }
         }
@@ -2386,12 +2375,12 @@ fn delete_noise(s: &mut SolverState, i: usize) -> Res<()> {
 fn make_square_up_left(s: &mut SolverState, i: usize) -> Res<()> {
     let (w, h) = s.width_and_height(i);
     if h < w {
-        let mut new_image = vec![vec![0; w as usize]; w as usize];
+        let mut new_image = Image::new(w as usize, w as usize);
         tools::draw_image_at(&mut new_image, &s.images[i], tools::Vec2 { x: 0, y: w - h });
         s.images[i] = new_image.into();
         return Ok(());
     } else if w < h {
-        let mut new_image = vec![vec![0; h as usize]; h as usize];
+        let mut new_image = Image::new(h as usize, h as usize);
         tools::draw_image_at(&mut new_image, &s.images[i], tools::Vec2 { x: h - w, y: 0 });
         s.images[i] = new_image.into();
         return Ok(());
@@ -2408,7 +2397,7 @@ fn shrink_to_output_size_from_top_left(s: &mut SolverState, i: usize) -> Res<()>
     } else if w == ow && h == oh {
         return Err("no change");
     }
-    let mut new_image = vec![vec![0; ow as usize]; oh as usize];
+    let mut new_image = Image::new(ow as usize, oh as usize);
     tools::draw_image_at(
         &mut new_image,
         &s.images[i],
@@ -2728,18 +2717,14 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     ],
     &[
         // 26
-        step_all!(print_images_step),
-        step_each!(make_square_up_left),
-        step_each!(make_image_rotationally_symmetrical),
-        step_each!(shrink_to_output_size_from_top_left),
-        step_all!(refresh_from_image),
-        step_each!(discard_background_shapes),
-        step_each!(use_previous_color),
-        step_each!(recolor_shapes_to_selected_color),
-        step_each!(draw_shapes),
-        step_each!(boolean_with_saved_image_or),
-        step_all!(print_images_step),
-        step_all!(remap_colors_per_output),
+        // step_each!(zoom_to_content),
+        // step_each!(extend_zoom_up_left_until_square),
+        // step_each!(make_image_rotationally_symmetrical),
+        // step_each!(use_previous_color),
+        // step_each!(recolor_image_to_selected_color),
+        // step_each!(draw_shapes),
+        // step_all!(remap_colors_per_output),
+        // step_all!(print_images_step),
     ],
     &[
         // 71
