@@ -165,9 +165,9 @@ fn evaluate_automatic_solver() {
 fn evaluate_manual_solvers() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
-    let mut expected_correct: Vec<&str> = "007bbfb7 00d62c1b 025d127b 045e512c 0520fde7 05269061 05f2a901 06df4c85 08ed6ac7 09629e4f 0962bcdd 0a938d79 0b148d64 0ca9ddb6 0d3d703e 0dfd9992 0e206a2e 10fcaaa3 11852cab 1190e5a7 137eaa0f 150deff5 178fcbfb 1a07d186 1cf80156 22168020 22eb0ac0 29ec7d0e 2dc579da 3428a4f5 4258a5f9 8403a5d5 90c28cc7 913fb3ed 99b1bc43 a5313dff b1948b0a ba97ae07 c3f564a4 c8f0f002 ce4f8723 d364b489 d511f180 d687bc17 dc1df850 ded97339 ea32f347".split(" ").collect();
+    let mut expected_correct: Vec<&str> = "007bbfb7 00d62c1b 025d127b 045e512c 0520fde7 05269061 05f2a901 06df4c85 08ed6ac7 09629e4f 0962bcdd 0a938d79 0b148d64 0ca9ddb6 0d3d703e 0dfd9992 0e206a2e 10fcaaa3 11852cab 1190e5a7 137eaa0f 150deff5 178fcbfb 1a07d186 1b2d62fb 1cf80156 22168020 22eb0ac0 29ec7d0e 2dc579da 3428a4f5 4258a5f9 6430c8c4 8403a5d5 90c28cc7 913fb3ed 99b1bc43 a5313dff b1948b0a ba97ae07 c3f564a4 c8f0f002 ce4f8723 d364b489 d511f180 d687bc17 dc1df850 ded97339 ea32f347 f2829549".split(" ").collect();
     let mut correct: Vec<colored::ColoredString> = vec![];
-    // let debug = (24, "1a07d186");
+    // let debug = (25, "1b2d62fb");
     let debug = (-1, "");
     let tasks: Vec<(String, Task)> = if debug.0 < 0 {
         tasks

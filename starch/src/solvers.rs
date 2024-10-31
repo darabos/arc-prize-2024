@@ -1235,8 +1235,14 @@ fn split_into_two_images(s: &mut SolverState) -> Res<()> {
 fn boolean_with_saved_image_and(s: &mut SolverState, i: usize) -> Res<()> {
     boolean_with_saved_image_function(s, i, |a, b| if a == 0 { 0 } else { b })
 }
+fn boolean_with_saved_image_nand(s: &mut SolverState, i: usize) -> Res<()> {
+    boolean_with_saved_image_function(s, i, |a, b| if a == 0 && b == 0 { 1 } else { 0 })
+}
 fn boolean_with_saved_image_or(s: &mut SolverState, i: usize) -> Res<()> {
     boolean_with_saved_image_function(s, i, |a, b| if a == 0 { b } else { a })
+}
+fn boolean_with_saved_image_nor(s: &mut SolverState, i: usize) -> Res<()> {
+    boolean_with_saved_image_function(s, i, |a, b| if a == 0 || b == 0 { 1 } else { 0 })
 }
 fn boolean_with_saved_image_xor(s: &mut SolverState, i: usize) -> Res<()> {
     boolean_with_saved_image_function(s, i, |a, b| {
@@ -2652,6 +2658,12 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(move_shapes_to_touch_saved_shape),
     ],
     &[
+        // 25
+        step_all!(split_into_two_images),
+        step_each!(boolean_with_saved_image_nand),
+        step_all!(recolor_image_per_output),
+    ],
+    &[
         // 71
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_xor),
@@ -2677,6 +2689,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(move_shapes_per_output_shapes),
         step_all!(rotate_to_landscape_cw),
         step_all!(select_grid_cell_most_filled_in),
+        step_each!(boolean_with_saved_image_nor),
         step_each!(discard_shapes_touching_border),
         step_each!(make_image_symmetrical),
         step_each!(order_shapes_by_color),
