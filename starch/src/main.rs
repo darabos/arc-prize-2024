@@ -3,6 +3,8 @@ use indicatif::ProgressBar;
 use serde_json;
 use std::collections::HashMap as Map;
 use std::fs;
+mod image;
+mod shape;
 mod solvers;
 mod tools;
 use tools::{Example, Image, Task};

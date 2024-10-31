@@ -1,8 +1,10 @@
+pub use crate::image::Image;
+pub use crate::shape::{Line, LineSet, Lines, Pixel, Shape};
 use colored;
 use colored::Colorize;
 use std::rc::Rc;
 
-type Color = i32;
+pub type Color = i32;
 
 pub const COLORS: [colored::Color; 12] = [
     colored::Color::Black,
@@ -31,103 +33,6 @@ pub const COLORS: [colored::Color; 12] = [
     colored::Color::Cyan,
 ];
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct Image {
-    pub width: usize,
-    pub height: usize,
-    pub pixels: Vec<Color>,
-}
-
-impl Image {
-    pub fn new(width: usize, height: usize) -> Image {
-        Image {
-            width,
-            height,
-            pixels: vec![0; width * height],
-        }
-    }
-    pub fn rows(&self) -> std::slice::Chunks<'_, Color> {
-        self.pixels.chunks(self.width)
-    }
-    pub fn is_empty(&self) -> bool {
-        self.width == 0 && self.height == 0
-    }
-    pub fn update(&mut self, f: impl Fn(usize, usize, Color) -> Color) {
-        for y in 0..self.height {
-            for x in 0..self.width {
-                self[(x, y)] = f(x, y, self[(x, y)]);
-            }
-        }
-    }
-    #[must_use]
-    pub fn try_update(&mut self, f: impl Fn(usize, usize, Color) -> Res<Color>) -> Res<()> {
-        for y in 0..self.height {
-            for x in 0..self.width {
-                self[(x, y)] = f(x, y, self[(x, y)])?;
-            }
-        }
-        Ok(())
-    }
-    pub fn get(&self, x: i32, y: i32) -> Res<Color> {
-        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
-            return Err("out of bounds");
-        }
-        Ok(self[(x as usize, y as usize)])
-    }
-    pub fn get_or(&self, x: i32, y: i32, default: Color) -> Color {
-        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
-            return default;
-        }
-        self[(x as usize, y as usize)]
-    }
-    #[must_use]
-    pub fn set(&mut self, x: i32, y: i32, color: Color) -> Res<()> {
-        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
-            return Err("out of bounds");
-        }
-        self[(x as usize, y as usize)] = color;
-        Ok(())
-    }
-    pub fn print(&self) {
-        println!("{}", self);
-    }
-    pub fn from_vecvec(vecvec: Vec<Vec<Color>>) -> Image {
-        let height = vecvec.len();
-        let width = if height == 0 { 0 } else { vecvec[0].len() };
-        let mut image = Image::new(width, height);
-        for y in 0..height {
-            for x in 0..width {
-                image[(x, y)] = vecvec[y][x];
-            }
-        }
-        image
-    }
-}
-
-impl std::ops::Index<(usize, usize)> for Image {
-    type Output = Color;
-    fn index<'a>(&'a self, (x, y): (usize, usize)) -> &'a Color {
-        &self.pixels[y * self.width + x]
-    }
-}
-
-impl std::ops::IndexMut<(usize, usize)> for Image {
-    fn index_mut<'a>(&'a mut self, (x, y): (usize, usize)) -> &'a mut Color {
-        &mut self.pixels[y * self.width + x]
-    }
-}
-impl std::fmt::Display for Image {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for row in self.rows() {
-            for cell in row {
-                write_color(f, *cell);
-            }
-            writeln!(f)?;
-        }
-        Ok(())
-    }
-}
-
 #[derive(Clone, Default)]
 pub struct Task {
     pub id: String,
@@ -150,48 +55,27 @@ pub struct Vec2 {
 }
 impl Vec2 {
     pub const ZERO: Vec2 = Vec2 { x: 0, y: 0 };
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
-pub struct Pixel {
-    pub x: i32,
-    pub y: i32,
-    pub color: Color,
-}
+    pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
+    pub const DOWN: Vec2 = Vec2 { x: 0, y: 1 };
+    pub const LEFT: Vec2 = Vec2 { x: -1, y: 0 };
+    pub const RIGHT: Vec2 = Vec2 { x: 1, y: 0 };
+    pub const UP_LEFT: Vec2 = Vec2 { x: -1, y: -1 };
+    pub const UP_RIGHT: Vec2 = Vec2 { x: 1, y: -1 };
+    pub const DOWN_LEFT: Vec2 = Vec2 { x: -1, y: 1 };
+    pub const DOWN_RIGHT: Vec2 = Vec2 { x: 1, y: 1 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Shape {
-    pub cells: Vec<Pixel>,            // Always sorted.
-    pub bb: Rect,                     // Bounding box.
-    pub has_relative_colors: bool,    // Color numbers are indexes into state.colors.
-    pub has_relative_positions: bool, // x/y are relative to the top-left corner of the shape.
+    pub const DIRECTIONS4: [Vec2; 4] = [Vec2::UP, Vec2::DOWN, Vec2::LEFT, Vec2::RIGHT];
+    pub const DIRECTIONS8: [Vec2; 8] = [
+        Vec2::UP,
+        Vec2::DOWN,
+        Vec2::LEFT,
+        Vec2::RIGHT,
+        Vec2::UP_LEFT,
+        Vec2::UP_RIGHT,
+        Vec2::DOWN_LEFT,
+        Vec2::DOWN_RIGHT,
+    ];
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
-pub struct Line {
-    pub pos: i32,
-    pub color: i32,
-    pub width: usize,
-}
-pub type Lines = Vec<Line>;
-#[derive(Debug)]
-pub struct LineSet {
-    pub horizontal: Lines,
-    pub vertical: Lines,
-}
-
-pub const UP: Vec2 = Vec2 { x: 0, y: -1 };
-pub const DOWN: Vec2 = Vec2 { x: 0, y: 1 };
-pub const LEFT: Vec2 = Vec2 { x: -1, y: 0 };
-pub const RIGHT: Vec2 = Vec2 { x: 1, y: 0 };
-pub const UP_LEFT: Vec2 = Vec2 { x: -1, y: -1 };
-pub const UP_RIGHT: Vec2 = Vec2 { x: 1, y: -1 };
-pub const DOWN_LEFT: Vec2 = Vec2 { x: -1, y: 1 };
-pub const DOWN_RIGHT: Vec2 = Vec2 { x: 1, y: 1 };
-
-pub const DIRECTIONS4: [Vec2; 4] = [UP, DOWN, LEFT, RIGHT];
-pub const DIRECTIONS8: [Vec2; 8] = [
-    UP, DOWN, LEFT, RIGHT, UP_LEFT, UP_RIGHT, DOWN_LEFT, DOWN_RIGHT,
-];
-
 pub fn write_color<W: std::fmt::Write>(f: &mut W, color: i32) {
     if color < 0 {
         write!(f, " ").unwrap();
@@ -429,14 +313,6 @@ pub fn shape_by_color(shapes: &[Rc<Shape>], color: i32) -> Option<Rc<Shape>> {
     None
 }
 
-impl Pixel {
-    pub fn pos(&self) -> Vec2 {
-        Vec2 {
-            x: self.x,
-            y: self.y,
-        }
-    }
-}
 impl std::ops::Sub for Pixel {
     type Output = Vec2;
     fn sub(self, other: Pixel) -> Vec2 {
@@ -483,351 +359,6 @@ impl std::ops::Add<Vec2> for Pixel {
     }
 }
 
-/// Always inclusive. (0, 0, 1, 1) is a 2x2 square.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
-pub struct Rect {
-    pub top: i32,
-    pub left: i32,
-    pub bottom: i32,
-    pub right: i32,
-}
-impl Rect {
-    pub fn bottom_right(&self) -> Vec2 {
-        Vec2 {
-            x: self.right - 1,
-            y: self.bottom - 1,
-        }
-    }
-    pub fn top_left(&self) -> Vec2 {
-        Vec2 {
-            x: self.left,
-            y: self.top,
-        }
-    }
-    pub fn width(&self) -> i32 {
-        self.right - self.left + 1
-    }
-    pub fn height(&self) -> i32 {
-        self.bottom - self.top + 1
-    }
-
-    pub fn is_horizontal_line(&self) -> bool {
-        self.height() == 1 && self.width() > 1
-    }
-    pub fn is_vertical_line(&self) -> bool {
-        self.width() == 1 && self.height() > 1
-    }
-}
-
-impl Shape {
-    #[must_use]
-    pub fn new(mut cells: Vec<Pixel>) -> Shape {
-        assert!(!cells.is_empty());
-        cells.sort();
-        let mut top = std::i32::MAX;
-        let mut left = std::i32::MAX;
-        let mut bottom = std::i32::MIN;
-        let mut right = std::i32::MIN;
-        for Pixel { x, y, color: _ } in &cells {
-            top = top.min(*y);
-            left = left.min(*x);
-            bottom = bottom.max(*y);
-            right = right.max(*x);
-        }
-        Shape {
-            cells,
-            bb: Rect {
-                top,
-                left,
-                bottom,
-                right,
-            },
-            has_relative_colors: false,
-            has_relative_positions: false,
-        }
-    }
-
-    #[must_use]
-    pub fn if_not_empty(cells: Vec<Pixel>) -> Res<Shape> {
-        if cells.is_empty() {
-            return Err("empty");
-        }
-        Ok(Shape::new(cells))
-    }
-
-    #[must_use]
-    pub fn color_at(&self, x: i32, y: i32) -> Option<i32> {
-        for Pixel {
-            x: px,
-            y: py,
-            color,
-        } in &self.cells
-        {
-            if *px == x && *py == y {
-                return Some(*color);
-            }
-        }
-        None
-    }
-    #[must_use]
-    pub fn does_overlap(&self, other: &Shape) -> bool {
-        // Quick check by bounding box.
-        let a_box = self.bb;
-        let b_box = other.bb;
-        if a_box.right < b_box.left || a_box.left > b_box.right {
-            return false;
-        }
-        if a_box.bottom < b_box.top || a_box.top > b_box.bottom {
-            return false;
-        }
-        // Slow check by pixel.
-        for Pixel { x, y, color: _ } in &self.cells {
-            if other.color_at(*x, *y).is_some() {
-                return true;
-            }
-        }
-        false
-    }
-
-    #[must_use]
-    pub fn move_by(&self, vector: Vec2) -> Shape {
-        let cells = self
-            .cells
-            .iter()
-            .map(|Pixel { x, y, color }| Pixel {
-                x: *x + vector.x,
-                y: *y + vector.y,
-                color: *color,
-            })
-            .collect();
-        Shape::new(cells)
-    }
-    pub fn move_by_mut(&mut self, vector: Vec2) {
-        for Pixel { x, y, color: _ } in &mut self.cells {
-            *x += vector.x;
-            *y += vector.y;
-        }
-        self.bb.top += vector.y;
-        self.bb.bottom += vector.y;
-        self.bb.left += vector.x;
-        self.bb.right += vector.x;
-    }
-    pub fn restore_from(&mut self, other: &Shape) {
-        for (a, b) in self.cells.iter_mut().zip(&other.cells) {
-            a.x = b.x;
-            a.y = b.y;
-            a.color = b.color;
-        }
-        self.bb = other.bb;
-    }
-    /// Returns true if the shape matches the image at the given position.
-    /// Returns false if the shape is entirely out of bounds.
-    pub fn matches_image_when_moved_by(&self, image: &Image, vector: Vec2) -> bool {
-        let mut matched_count = 0;
-        for Pixel { x, y, color } in &self.cells {
-            let nx = x + vector.x;
-            let ny = y + vector.y;
-            if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
-                continue;
-            }
-            let icolor = image[(nx as usize, ny as usize)];
-            if icolor == 0 {
-                continue;
-            }
-            if icolor != *color {
-                return false;
-            }
-            matched_count += 1;
-        }
-        matched_count > 0
-        // TODO: Why isn't this better?
-        // matched_count >= 2 && matched_count >= self.cells.len() / 2
-    }
-
-    pub fn recolor(&mut self, color: i32) {
-        for cell in &mut self.cells {
-            cell.color = color;
-        }
-    }
-    #[must_use]
-    pub fn color(&self) -> i32 {
-        self.cells[0].color
-    }
-    #[must_use]
-    pub fn tile(&self, x_step: i32, width: i32, y_step: i32, height: i32) -> Res<Shape> {
-        let mut new_cells = vec![];
-        for Pixel { x, y, color } in &self.cells {
-            for &tx in &[x_step, -x_step] {
-                let mut cx = *x;
-                while cx >= 0 && cx < width {
-                    for &ty in &[y_step, -y_step] {
-                        let mut cy = *y;
-                        while cy >= 0 && cy < height {
-                            new_cells.push(Pixel {
-                                x: cx,
-                                y: cy,
-                                color: *color,
-                            });
-                            if ty == 0 {
-                                break;
-                            }
-                            cy += ty;
-                        }
-                    }
-                    if tx == 0 {
-                        break;
-                    }
-                    cx += tx;
-                }
-            }
-        }
-        Shape::if_not_empty(new_cells)
-    }
-
-    #[must_use]
-    pub fn crop(&self, left: i32, top: i32, right: i32, bottom: i32) -> Res<Shape> {
-        let mut new_cells = vec![];
-        for Pixel { x, y, color } in &self.cells {
-            if *x >= left && *x <= right && *y >= top && *y <= bottom {
-                new_cells.push(Pixel {
-                    x: *x - left,
-                    y: *y - top,
-                    color: *color,
-                });
-            }
-        }
-        Shape::if_not_empty(new_cells)
-    }
-
-    pub fn draw_where_non_empty(&self, image: &mut Image) {
-        for Pixel { x, y, color } in &self.cells {
-            if image.get_or(*x, *y, 0) != 0 {
-                image[(*x as usize, *y as usize)] = *color;
-            }
-        }
-    }
-
-    pub fn discard_color(&mut self, color: i32) {
-        self.cells = std::mem::take(&mut self.cells)
-            .into_iter()
-            .filter(|cell| cell.color != color)
-            .collect();
-    }
-
-    #[must_use]
-    pub fn from_image(image: &Image) -> Shape {
-        let mut cells = vec![];
-        for x in 0..image.width {
-            for y in 0..image.height {
-                let color = image[(x, y)];
-                cells.push(Pixel {
-                    x: x as i32,
-                    y: y as i32,
-                    color,
-                });
-            }
-        }
-        Shape::new(cells)
-    }
-
-    #[must_use]
-    pub fn is_touching_border(&self, image: &Image) -> bool {
-        for Pixel { x, y, color: _ } in &self.cells {
-            if *x == 0 || *y == 0 || *x == image.width as i32 - 1 || *y == image.height as i32 - 1 {
-                return true;
-            }
-        }
-        false
-    }
-
-    #[allow(dead_code)]
-    pub fn print(&self) {
-        println!("top left: {}, {}", self.bb.left, self.bb.top);
-        println!("{}", self.as_image());
-    }
-
-    pub fn use_relative_colors(&mut self, reverse_colors: &[i32]) {
-        for cell in &mut self.cells {
-            cell.color = reverse_colors[cell.color as usize];
-        }
-        self.has_relative_colors = true;
-    }
-
-    #[must_use]
-    pub fn covers(&self, other: &Shape) -> bool {
-        for Pixel { x, y, color: _ } in &other.cells {
-            if self.color_at(*x, *y).is_none() {
-                return false;
-            }
-        }
-        true
-    }
-
-    #[must_use]
-    pub fn to_relative_pos(&self) -> Shape {
-        let min_x = self.cells.iter().map(|cell| cell.x).min().unwrap();
-        let min_y = self.cells.iter().map(|cell| cell.y).min().unwrap();
-        let cells = self
-            .cells
-            .iter()
-            .map(|Pixel { x, y, color }| Pixel {
-                x: x - min_x,
-                y: y - min_y,
-                color: *color,
-            })
-            .collect();
-        let mut shp = Shape::new(cells);
-        shp.has_relative_positions = true;
-        shp
-    }
-
-    /// Requires exact match.
-    #[must_use]
-    pub fn find_matching_shape_index(&self, shapes: &[Rc<Shape>]) -> Option<usize> {
-        for (i, shape) in shapes.iter().enumerate() {
-            if self == shape.as_ref() {
-                return Some(i);
-            }
-        }
-        None
-    }
-
-    #[must_use]
-    pub fn as_image(&self) -> Image {
-        let mut image = Image::new(self.bb.width() as usize, self.bb.height() as usize);
-        for Pixel { x, y, color } in &self.cells {
-            image[((x - self.bb.left) as usize, (y - self.bb.top) as usize)] = *color;
-        }
-        image
-    }
-
-    #[must_use]
-    pub fn rotate_90_cw(&self) -> Shape {
-        let mut new_cells = vec![];
-        for Pixel { x, y, color } in &self.cells {
-            new_cells.push(Pixel {
-                x: -y,
-                y: *x,
-                color: *color,
-            });
-        }
-        Shape::new(new_cells)
-    }
-
-    #[must_use]
-    pub fn flip_horizontal(&self) -> Shape {
-        let mut new_cells = vec![];
-        for Pixel { x, y, color } in &self.cells {
-            new_cells.push(Pixel {
-                x: -x,
-                y: *y,
-                color: *color,
-            });
-        }
-        Shape::new(new_cells)
-    }
-}
-
 pub fn reverse_colors(colors: &[i32]) -> Vec<i32> {
     let mut reverse_colors = vec![-1; COLORS.len()];
     for (i, &color) in colors.iter().enumerate() {
@@ -843,31 +374,6 @@ pub fn map_colors_in_image(image: &Image, colors_before: &[i32], colors_after: &
     new_image
 }
 
-/// Draws the image in the given color.
-pub fn paint_shape(image: &mut Image, shape: &Shape, color: i32) {
-    for Pixel { x, y, color: _ } in &shape.cells {
-        if *x < 0 || *y < 0 || *x >= image.width as i32 || *y >= image.height as i32 {
-            continue;
-        }
-        image[(*x as usize, *y as usize)] = color;
-    }
-}
-
-pub fn crop_image(image: &Image, left: i32, top: i32, width: i32, height: i32) -> Image {
-    let mut new_image = Image::new(width as usize, height as usize);
-    for y in 0..height {
-        for x in 0..width {
-            let nx = left + x;
-            let ny = top + y;
-            if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
-                continue;
-            }
-            new_image[(x as usize, y as usize)] = image[(nx as usize, ny as usize)];
-        }
-    }
-    new_image
-}
-
 pub fn a_matches_b_where_a_is_not_transparent(a: &Image, b: &Image) -> bool {
     if a.width != b.width || a.height != b.height {
         return false;
@@ -880,41 +386,6 @@ pub fn a_matches_b_where_a_is_not_transparent(a: &Image, b: &Image) -> bool {
         }
     }
     true
-}
-
-pub fn erase_shape(image: &mut Image, shape: &Shape) {
-    paint_shape(image, &shape, 0)
-}
-/// Draws the shape in its original color.
-pub fn draw_shape(image: &mut Image, shape: &Shape) {
-    for Pixel { x, y, color } in &shape.cells {
-        if *x < 0 || *y < 0 || *x >= image.width as i32 || *y >= image.height as i32 {
-            continue;
-        }
-        image[(*x as usize, *y as usize)] = *color;
-    }
-}
-
-pub fn draw_shape_with_colors(image: &mut Image, shape: &Shape, colors: &[i32]) {
-    for Pixel { x, y, color } in &shape.cells {
-        if *x < 0 || *y < 0 || *x >= image.width as i32 || *y >= image.height as i32 {
-            continue;
-        }
-        image[(*x as usize, *y as usize)] = colors[*color as usize];
-    }
-}
-
-pub fn draw_image_at(image: &mut Image, other: &Image, pos: Vec2) {
-    for y in 0..other.height {
-        for x in 0..other.width {
-            let nx = pos.x + x as i32;
-            let ny = pos.y + y as i32;
-            if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
-                continue;
-            }
-            image[(nx as usize, ny as usize)] = other[(x as usize, y as usize)];
-        }
-    }
 }
 
 // Moves the first shape pixel by pixel. (Not using bounding boxes.)
@@ -937,10 +408,10 @@ pub fn move_shape_to_shape_in_direction(
             break;
         }
         distance += 1;
-        if (dir == UP || dir == DOWN) && distance >= image.height as i32 {
+        if (dir == Vec2::UP || dir == Vec2::DOWN) && distance >= image.height as i32 {
             return Err("never touched");
         }
-        if (dir == LEFT || dir == RIGHT) && distance >= image.width as i32 {
+        if (dir == Vec2::LEFT || dir == Vec2::RIGHT) && distance >= image.width as i32 {
             return Err("never touched");
         }
     }
@@ -949,8 +420,8 @@ pub fn move_shape_to_shape_in_direction(
         x: dir.x * distance,
         y: dir.y * distance,
     });
-    erase_shape(&mut new_image, to_move);
-    draw_shape(&mut new_image, &moved);
+    new_image.erase_shape(to_move);
+    new_image.draw_shape(&moved);
     Ok(new_image)
 }
 
@@ -959,15 +430,15 @@ pub fn move_shape_to_shape_in_direction(
 pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Shape) -> Res<Image> {
     // Find the moving direction.
     if to_move.bb.right < move_to.bb.left {
-        return move_shape_to_shape_in_direction(image, to_move, move_to, RIGHT);
+        return move_shape_to_shape_in_direction(image, to_move, move_to, Vec2::RIGHT);
     }
     if to_move.bb.left > move_to.bb.right {
-        return move_shape_to_shape_in_direction(image, to_move, move_to, LEFT);
+        return move_shape_to_shape_in_direction(image, to_move, move_to, Vec2::LEFT);
     }
     if to_move.bb.bottom < move_to.bb.top {
-        return move_shape_to_shape_in_direction(image, to_move, move_to, DOWN);
+        return move_shape_to_shape_in_direction(image, to_move, move_to, Vec2::DOWN);
     }
-    return move_shape_to_shape_in_direction(image, to_move, move_to, UP);
+    return move_shape_to_shape_in_direction(image, to_move, move_to, Vec2::UP);
 }
 
 #[derive(Debug, Clone)]
@@ -1013,19 +484,6 @@ pub fn smallest(shapes: &[Shape]) -> &Shape {
         .expect("Should have been a shape")
 }
 
-pub fn lookup_in_2d<T: Copy>(image: &Vec<Vec<T>>, x: i32, y: i32) -> Res<T> {
-    if x < 0 || y < 0 || x >= image[0].len() as i32 || y >= image.len() as i32 {
-        return Err("out of bounds");
-    }
-    Ok(image[y as usize][x as usize])
-}
-
-pub fn set_in_image(image: &mut Image, x: i32, y: i32, color: i32) {
-    if x < 0 || y < 0 || x >= image.width as i32 || y >= image.height as i32 {
-        return;
-    }
-    image[(x as usize, y as usize)] = color;
-}
 pub fn get_pattern_with_radius(
     images: &[Rc<Image>],
     dots: &[&Rc<Shape>],
@@ -1124,17 +582,6 @@ pub fn find_pattern_vertically(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res
         last_pattern = Some(p);
     }
     last_pattern.ok_or("image too small")
-}
-
-pub fn draw_shape_at(image: &mut Image, shape: &Shape, pos: Vec2) {
-    for Pixel { x, y, color } in &shape.cells {
-        let nx = pos.x + x;
-        let ny = pos.y + y;
-        if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
-            continue;
-        }
-        image[(nx as usize, ny as usize)] = *color;
-    }
 }
 
 pub fn draw_shape_with_relative_colors_at(
@@ -1254,7 +701,7 @@ pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
             if end_x <= start_x {
                 continue;
             }
-            let new_image = crop_image(image, start_x, start_y, end_x - start_x, end_y - start_y);
+            let new_image = image.crop(start_x, start_y, end_x - start_x, end_y - start_y);
             images.push(new_image);
         }
     }

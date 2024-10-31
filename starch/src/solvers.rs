@@ -1,5 +1,5 @@
 use crate::tools;
-use crate::tools::{Example, Image, Res, Shape, Task, COLORS};
+use crate::tools::{Example, Image, Res, Shape, Task, Vec2, COLORS};
 use std::rc::Rc;
 
 macro_rules! err {
@@ -106,7 +106,7 @@ where
             let mut new_image = (*s.images[i]).clone();
             for dots in &s.shapes[i] {
                 for dot in dots.cells.iter() {
-                    tools::draw_shape_at(&mut new_image, &pattern, dot.pos());
+                    new_image.draw_shape_at(&pattern, dot.pos());
                 }
             }
             s.images[i] = Rc::new(new_image);
@@ -234,8 +234,8 @@ pub struct SolverState {
     pub output_shapes_including_background: ShapesPerExample,
     pub saved_shapes: Vec<ShapesPerExample>,
     pub colorsets: ShapesPerExample,
-    pub scale_up: tools::Vec2,
-    pub last_move: Vec<tools::Vec2>,
+    pub scale_up: Vec2,
+    pub last_move: Vec<Vec2>,
     // Lines that go all the way through the image.
     pub lines: LinesPerExample,
     pub saved_lines: Vec<LinesPerExample>,
@@ -266,7 +266,7 @@ impl SolverState {
         let mut state = SolverState {
             task: Rc::new(task.clone()),
             output_images,
-            last_move: vec![tools::Vec2::ZERO; images.len()],
+            last_move: vec![Vec2::ZERO; images.len()],
             ..Default::default()
         };
         state.init_from_images(images);
@@ -287,17 +287,17 @@ impl SolverState {
         self.shapes_including_background = self
             .images
             .iter()
-            .map(|image| tools::find_shapes_in_image(image, &tools::DIRECTIONS4))
+            .map(|image| tools::find_shapes_in_image(image, &Vec2::DIRECTIONS4))
             .collect();
         self.multicolor_shapes = self
             .images
             .iter()
-            .map(|image| tools::find_multicolor_shapes_in_image(image, &tools::DIRECTIONS4))
+            .map(|image| tools::find_multicolor_shapes_in_image(image, &Vec2::DIRECTIONS4))
             .collect();
         self.output_shapes_including_background = self
             .output_images
             .iter()
-            .map(|image| tools::find_shapes_in_image(image, &tools::DIRECTIONS4))
+            .map(|image| tools::find_shapes_in_image(image, &Vec2::DIRECTIONS4))
             .collect();
         // Discard background shapes that touch the border.
         self.shapes = self
@@ -745,7 +745,7 @@ fn scale_up_image(s: &mut SolverState) -> Res<()> {
         return Err(err!("output height must be a multiple of input height"));
     }
     let scale_y = output_height / input_height;
-    s.scale_up = tools::Vec2 {
+    s.scale_up = Vec2 {
         x: scale_x,
         y: scale_y,
     };
@@ -789,7 +789,7 @@ fn scale_up_image_add_grid(s: &mut SolverState) -> Res<()> {
     if (output_height - num_h) % height != 0 {
         return Err(err!("output width must be a multiple of input width"));
     }
-    s.scale_up = tools::Vec2 {
+    s.scale_up = Vec2 {
         x: (output_width - num_v) / width,
         y: (output_height - num_h) / height,
     };
@@ -933,7 +933,7 @@ fn draw_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &s.shapes[i];
     let mut new_image = (*s.images[i]).clone();
     for shape in shapes {
-        tools::draw_shape(&mut new_image, shape);
+        new_image.draw_shape(shape);
     }
     s.images[i] = Rc::new(new_image);
     Ok(())
@@ -1057,13 +1057,13 @@ fn pick_bottom_right_shape_per_color(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 fn allow_diagonals_in_shapes(s: &mut SolverState, i: usize) -> Res<()> {
-    let mut shapes = tools::find_shapes_in_image(&s.images[i], &tools::DIRECTIONS8);
+    let mut shapes = tools::find_shapes_in_image(&s.images[i], &Vec2::DIRECTIONS8);
     shapes = tools::discard_background_shapes_touching_border(&s.images[i], shapes);
     s.shapes[i] = shapes;
     Ok(())
 }
 fn allow_diagonals_in_multicolor_shapes(s: &mut SolverState, i: usize) -> Res<()> {
-    let mut shapes = tools::find_multicolor_shapes_in_image(&s.images[i], &tools::DIRECTIONS8);
+    let mut shapes = tools::find_multicolor_shapes_in_image(&s.images[i], &Vec2::DIRECTIONS8);
     shapes = tools::discard_background_shapes_touching_border(&s.images[i], shapes);
     s.shapes[i] = shapes;
     Ok(())
@@ -1130,7 +1130,7 @@ fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
     let shapes = &s.shapes;
     let outputs = &s.output_images;
     for distance in 1..5 {
-        for direction in tools::DIRECTIONS8 {
+        for direction in Vec2::DIRECTIONS8 {
             let mut correct = true;
             let offset = distance * direction;
             'images: for i in 0..outputs.len() {
@@ -1145,8 +1145,8 @@ fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
                 for i in 0..s.images.len() {
                     let mut new_image = (*s.images[i]).clone();
                     for shape in &shapes[i] {
-                        tools::erase_shape(&mut new_image, shape);
-                        tools::draw_shape_at(&mut new_image, shape, offset);
+                        new_image.erase_shape(shape);
+                        new_image.draw_shape_at(shape, offset);
                     }
                     s.images[i] = Rc::new(new_image);
                 }
@@ -1165,7 +1165,7 @@ fn move_saved_shape_to_cover_current_shape_max(s: &mut SolverState, i: usize) ->
     let saved_shape = saved_shapes.get(0).ok_or(err!("no saved shape"))?;
     let mut moved: Shape = (**saved_shape).clone();
     for distance in (1..10).rev() {
-        for direction in tools::DIRECTIONS8 {
+        for direction in Vec2::DIRECTIONS8 {
             moved.move_by_mut(distance * direction);
             if moved.covers(current_shape) {
                 s.shapes[i] = vec![moved.into()];
@@ -1181,14 +1181,14 @@ fn move_saved_shape_to_cover_current_shape_max(s: &mut SolverState, i: usize) ->
 /// Draws the shape in its current location, then moves it again and draws it again,
 /// until it leaves the image.
 fn repeat_last_move_and_draw(s: &mut SolverState, i: usize) -> Res<()> {
-    if s.last_move[i] == tools::Vec2::ZERO {
+    if s.last_move[i] == Vec2::ZERO {
         return Err(err!("no last move"));
     }
     let mut shapes: Vec<Shape> = s.shapes[i].iter().map(|shape| (**shape).clone()).collect();
     let mut new_image = (*s.images[i]).clone();
     for _ in 0..10 {
         for shape in &mut shapes {
-            tools::draw_shape(&mut new_image, &shape);
+            new_image.draw_shape(&shape);
             shape.move_by_mut(s.last_move[i]);
         }
     }
@@ -1218,14 +1218,8 @@ fn split_into_two_images(s: &mut SolverState) -> Res<()> {
     if width == output_width * 2 + 1 {
         let mut to_save = vec![];
         for image in &mut s.images {
-            let left_image = Rc::new(tools::crop_image(image, 0, 0, width / 2, height));
-            let right_image = Rc::new(tools::crop_image(
-                image,
-                width / 2 + 1,
-                0,
-                width / 2,
-                height,
-            ));
+            let left_image = Rc::new(image.crop(0, 0, width / 2, height));
+            let right_image = Rc::new(image.crop(width / 2 + 1, 0, width / 2, height));
             *image = left_image;
             to_save.push(right_image);
         }
@@ -1234,14 +1228,8 @@ fn split_into_two_images(s: &mut SolverState) -> Res<()> {
     } else if height == output_height * 2 + 1 {
         let mut to_save = vec![];
         for image in &mut s.images {
-            let top_image = Rc::new(tools::crop_image(image, 0, 0, width, height / 2));
-            let bottom_image = Rc::new(tools::crop_image(
-                image,
-                0,
-                height / 2 + 1,
-                width,
-                height / 2,
-            ));
+            let top_image = Rc::new(image.crop(0, 0, width, height / 2));
+            let bottom_image = Rc::new(image.crop(0, height / 2 + 1, width, height / 2));
             *image = top_image;
             to_save.push(bottom_image);
         }
@@ -1315,8 +1303,8 @@ fn recolor_image_per_output(s: &mut SolverState) -> Res<()> {
 fn find_matching_offset(
     shapes: &ShapesPerExample,
     images: &ImagePerExample,
-    direction: tools::Vec2,
-    start_pos: tools::Vec2,
+    direction: Vec2,
+    start_pos: Vec2,
     min_offset: i32,
     max_offset: i32,
 ) -> Res<i32> {
@@ -1328,11 +1316,7 @@ fn find_matching_offset(
     Err(err!("no match found"))
 }
 
-fn are_shapes_present_at(
-    shapes: &ShapesPerExample,
-    images: &ImagePerExample,
-    pos: tools::Vec2,
-) -> bool {
+fn are_shapes_present_at(shapes: &ShapesPerExample, images: &ImagePerExample, pos: Vec2) -> bool {
     for i in 0..images.len() {
         let image = &images[i];
         for shape in &shapes[i] {
@@ -1365,36 +1349,30 @@ fn repeat_shapes_on_lattice_per_reference(
     }
     // Find a lattice. This is a periodic pattern described by two parameters,
     // the horizontal period (a single number) and the vertical offset (a Vec2).
-    let horizontal_period = find_matching_offset(
-        &s.shapes,
-        references,
-        tools::RIGHT,
-        tools::Vec2::ZERO,
-        1,
-        10,
-    )?;
+    let horizontal_period =
+        find_matching_offset(&s.shapes, references, Vec2::RIGHT, Vec2::ZERO, 1, 10)?;
     for vertical_y in 1..10 {
         for m in [1, -1].iter() {
             let vertical_y = vertical_y * *m;
             if let Ok(vertical_x) = find_matching_offset(
                 &s.shapes,
                 references,
-                tools::RIGHT,
-                vertical_y * tools::DOWN,
+                Vec2::RIGHT,
+                vertical_y * Vec2::DOWN,
                 -2,
                 2,
             ) {
                 if are_shapes_present_at(
                     &s.shapes,
                     references,
-                    vertical_y * tools::DOWN + (vertical_x + horizontal_period) * tools::RIGHT,
+                    vertical_y * Vec2::DOWN + (vertical_x + horizontal_period) * Vec2::RIGHT,
                 ) {
                     return repeat_shapes_on_lattice(s, horizontal_period, vertical_x, vertical_y);
                 }
                 if are_shapes_present_at(
                     &s.shapes,
                     references,
-                    vertical_y * tools::DOWN + (vertical_x - horizontal_period) * tools::RIGHT,
+                    vertical_y * Vec2::DOWN + (vertical_x - horizontal_period) * Vec2::RIGHT,
                 ) {
                     return repeat_shapes_on_lattice(s, horizontal_period, vertical_x, vertical_y);
                 }
@@ -1417,11 +1395,11 @@ fn repeat_shapes_on_lattice(
         for shape in shapes {
             for rep_x in -5..=5 {
                 for rep_y in -5..=5 {
-                    let pos = tools::Vec2 {
+                    let pos = Vec2 {
                         x: rep_x * horizontal_period + rep_y * vertical_x,
                         y: rep_y * vertical_y,
                     };
-                    tools::draw_shape_at(&mut new_image, shape, pos);
+                    new_image.draw_shape_at(shape, pos);
                 }
             }
         }
@@ -1603,14 +1581,14 @@ fn connect_aligned_pixels_in_shapes(s: &mut SolverState, i: usize) -> Res<()> {
         let bb = shape.bb;
         let shape_as_image = shape.as_image();
         for cell in &shape.cells {
-            for dir in tools::DIRECTIONS4 {
+            for dir in Vec2::DIRECTIONS4 {
                 for distance in 1..10 {
                     let image_pos = *cell + distance * dir;
                     let shape_pos = image_pos - bb.top_left();
                     if shape_as_image.get_or(shape_pos.x, shape_pos.y, 0) != 0 {
                         for d in 1..distance {
                             let pos = *cell + d * dir;
-                            tools::set_in_image(&mut new_image, pos.x, pos.y, cell.color);
+                            let _ = new_image.set(pos.x, pos.y, cell.color);
                         }
                     }
                 }
@@ -1850,7 +1828,7 @@ fn number_sequence_to_shapes_left_to_right(s: &mut SolverState, i: usize) -> Res
         let shape = relative_shapes
             .get(index as usize)
             .ok_or(err!("no shape for index"))?
-            .move_by(tools::Vec2 { x: next_x, y: 0 });
+            .move_by(Vec2 { x: next_x, y: 0 });
         next_x += shape.bb.width();
         shapes.push(shape.into());
     }
@@ -1957,7 +1935,7 @@ fn discard_small_shapes(s: &mut SolverState, i: usize) -> Res<()> {
 fn erase_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let mut image = (*s.images[i]).clone();
     for shape in &s.shapes[i] {
-        tools::erase_shape(&mut image, shape);
+        image.erase_shape(shape);
     }
     s.images[i] = image.into();
     Ok(())
@@ -2170,7 +2148,7 @@ struct CoverageState {
     is_covered: Vec<Vec<bool>>,
     still_uncovered: usize,
     // (shape index, position)
-    placements: Vec<(usize, tools::Vec2)>,
+    placements: Vec<(usize, Vec2)>,
     budget: i32,
 }
 
@@ -2219,7 +2197,7 @@ fn cover_image_with_shapes_recursive(mut state: &mut CoverageState, min_y: i32) 
                     }
                 }
                 // Place it here.
-                state.placements.push((i, tools::Vec2 { x, y }));
+                state.placements.push((i, Vec2 { x, y }));
                 for cell in &shape.cells {
                     state.is_covered[(cell.y + y) as usize][(cell.x + x) as usize] = true;
                     state.still_uncovered -= 1;
@@ -2365,7 +2343,7 @@ fn delete_noise(s: &mut SolverState, i: usize) -> Res<()> {
     }
     let mut new_image = (*s.images[i]).clone();
     for shape in small {
-        tools::erase_shape(&mut new_image, shape);
+        new_image.erase_shape(shape);
     }
     s.images[i] = new_image.into();
     Ok(())
@@ -2376,12 +2354,12 @@ fn make_square_up_left(s: &mut SolverState, i: usize) -> Res<()> {
     let (w, h) = s.width_and_height(i);
     if h < w {
         let mut new_image = Image::new(w as usize, w as usize);
-        tools::draw_image_at(&mut new_image, &s.images[i], tools::Vec2 { x: 0, y: w - h });
+        new_image.draw_image_at(&s.images[i], Vec2 { x: 0, y: w - h });
         s.images[i] = new_image.into();
         return Ok(());
     } else if w < h {
         let mut new_image = Image::new(h as usize, h as usize);
-        tools::draw_image_at(&mut new_image, &s.images[i], tools::Vec2 { x: h - w, y: 0 });
+        new_image.draw_image_at(&s.images[i], Vec2 { x: h - w, y: 0 });
         s.images[i] = new_image.into();
         return Ok(());
     }
@@ -2398,10 +2376,9 @@ fn shrink_to_output_size_from_top_left(s: &mut SolverState, i: usize) -> Res<()>
         return Err("no change");
     }
     let mut new_image = Image::new(ow as usize, oh as usize);
-    tools::draw_image_at(
-        &mut new_image,
+    new_image.draw_image_at(
         &s.images[i],
-        tools::Vec2 {
+        Vec2 {
             x: ow - w,
             y: oh - h,
         },
