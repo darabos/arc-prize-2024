@@ -2175,3 +2175,21 @@ pub fn align_shapes_to_saved_shape_horizontal(s: &mut SolverState, i: usize) -> 
     }
     Ok(())
 }
+
+pub fn drop_all_pixels_down(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &mut s.images[i];
+    let mut new_image: Image = (**image).clone();
+    let mut columns = vec![0; image.width];
+    new_image.clear();
+    for y in (0..image.height).rev() {
+        for x in 0..image.width {
+            let c = image[(x, y)];
+            if c != 0 {
+                new_image[(x, image.height - columns[x] - 1)] = c;
+                columns[x] += 1;
+            }
+        }
+    }
+    *image = new_image.into();
+    Ok(())
+}

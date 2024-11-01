@@ -767,15 +767,19 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(draw_shapes),
     ],
     &[
-        // 71
-        step_all!(split_into_two_images),
-        step_each!(boolean_with_saved_image_xor),
-        step_all!(recolor_image_per_output),
-    ],
-    &[
         // ???
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_or),
+        step_all!(recolor_image_per_output),
+    ],
+    &[
+        // 31
+        step_each!(drop_all_pixels_down),
+    ],
+    &[
+        // 71
+        step_all!(split_into_two_images),
+        step_each!(boolean_with_saved_image_xor),
         step_all!(recolor_image_per_output),
     ],
     &[

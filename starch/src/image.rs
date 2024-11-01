@@ -156,6 +156,14 @@ impl Image {
         new_image
     }
 
+    pub fn clear(&mut self) {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                self[(x, y)] = 0;
+            }
+        }
+    }
+
     /// Draws the image in the given color.
     pub fn paint_shape(&mut self, shape: &Shape, color: i32) {
         for Pixel { x, y, color: _ } in shape.cells() {
