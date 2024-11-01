@@ -524,7 +524,7 @@ pub fn order_shapes_by_color(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
-pub fn order_shapes_by_size_decreasing(s: &mut SolverState, i: usize) -> Res<()> {
+pub fn order_shapes_by_weight_decreasing(s: &mut SolverState, i: usize) -> Res<()> {
     s.shapes[i].sort_by_key(|shape| -(shape.pixels.len() as i32));
     if i < s.output_shapes.len() {
         s.output_shapes[i].sort_by_key(|shape| -(shape.pixels.len() as i32));
@@ -532,10 +532,26 @@ pub fn order_shapes_by_size_decreasing(s: &mut SolverState, i: usize) -> Res<()>
     Ok(())
 }
 
-pub fn order_shapes_by_size_increasing(s: &mut SolverState, i: usize) -> Res<()> {
+pub fn order_shapes_by_weight_increasing(s: &mut SolverState, i: usize) -> Res<()> {
     s.shapes[i].sort_by_key(|shape| shape.pixels.len());
     if i < s.output_shapes.len() {
         s.output_shapes[i].sort_by_key(|shape| shape.pixels.len());
+    }
+    Ok(())
+}
+
+pub fn order_shapes_by_bb_size_decreasing(s: &mut SolverState, i: usize) -> Res<()> {
+    s.shapes[i].sort_by_key(|shape| -(shape.bb.area()));
+    if i < s.output_shapes.len() {
+        s.output_shapes[i].sort_by_key(|shape| -(shape.bb.area() as i32));
+    }
+    Ok(())
+}
+
+pub fn order_shapes_by_bb_size_increasing(s: &mut SolverState, i: usize) -> Res<()> {
+    s.shapes[i].sort_by_key(|shape| shape.bb.area());
+    if i < s.output_shapes.len() {
+        s.output_shapes[i].sort_by_key(|shape| shape.bb.area());
     }
     Ok(())
 }
@@ -2096,5 +2112,38 @@ pub fn reset_zoom(s: &mut SolverState, i: usize) -> Res<()> {
     new_image.width = new_image.full_width;
     new_image.height = new_image.full_height;
     s.images[i] = new_image.into();
+    Ok(())
+}
+
+pub fn crop_to_shape(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &mut s.images[i];
+    let shape = s.shapes[i].first().ok_or(err!("no shape"))?;
+    if shape.bb.left <= 0
+        && shape.bb.top <= 0
+        && shape.bb.right >= image.width as i32
+        && shape.bb.bottom >= image.height as i32
+    {
+        return Err("no change");
+    }
+    *image = image
+        .crop(
+            shape.bb.left,
+            shape.bb.top,
+            shape.bb.width(),
+            shape.bb.height(),
+        )
+        .into();
+    s.shift_shapes(i, -1 * shape.bb.top_left());
+    Ok(())
+}
+pub fn inset_by_one(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &mut s.images[i];
+    if image.width < 3 || image.height < 3 {
+        return Err(err!("image too small"));
+    }
+    *image = image
+        .crop(1, 1, image.width as i32 - 2, image.height as i32 - 2)
+        .into();
+    s.shift_shapes(i, Vec2 { x: -1, y: -1 });
     Ok(())
 }

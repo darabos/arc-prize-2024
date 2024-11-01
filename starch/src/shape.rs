@@ -79,6 +79,9 @@ impl Rect {
     pub fn is_vertical_line(&self) -> bool {
         self.width() == 1 && self.height() > 1
     }
+    pub fn area(&self) -> i32 {
+        self.width() * self.height()
+    }
 }
 
 impl Shape {

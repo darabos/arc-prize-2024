@@ -136,6 +136,12 @@ impl Image {
     }
 
     pub fn crop(&self, left: i32, top: i32, width: i32, height: i32) -> Image {
+        assert!(left >= 0);
+        assert!(top >= 0);
+        assert!(left + width <= self.width as i32);
+        assert!(top + height <= self.height as i32);
+        assert!(width >= 0);
+        assert!(height >= 0);
         let mut new_image = Image::new(width as usize, height as usize);
         for y in 0..height {
             for x in 0..width {

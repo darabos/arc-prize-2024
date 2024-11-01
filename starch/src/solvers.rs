@@ -534,8 +534,8 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(move_shapes_to_touch_saved_shape),
     step_each!(order_colors_by_shapes),
     step_each!(order_shapes_by_color),
-    step_each!(order_shapes_by_size_decreasing),
-    step_each!(order_shapes_by_size_increasing),
+    step_each!(order_shapes_by_weight_decreasing),
+    step_each!(order_shapes_by_weight_increasing),
     step_each!(order_shapes_from_left_to_right),
     step_each!(pick_bottom_right_shape_per_color),
     step_each!(pick_bottom_right_shape),
@@ -584,7 +584,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         // 4
         step_each!(allow_diagonals_in_shapes),
         step_each!(discard_background_shapes),
-        step_each!(order_shapes_by_size_decreasing),
+        step_each!(order_shapes_by_weight_decreasing),
         step_all!(save_first_shape_use_the_rest),
         step_all!(substates_for_each_shape),
         step_each!(recolor_saved_shapes_to_current_shape),
@@ -620,7 +620,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     ],
     &[
         // 9
-        step_each!(order_shapes_by_size_increasing),
+        step_each!(order_shapes_by_weight_increasing),
         step_all!(recolor_shapes_per_output),
         step_each!(draw_shapes),
     ],
@@ -632,7 +632,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // 11
         step_all!(use_colorsets_as_shapes),
-        step_each!(order_shapes_by_size_increasing),
+        step_each!(order_shapes_by_weight_increasing),
         step_each!(order_colors_by_shapes),
         step_all!(use_relative_colors),
         step_each!(filter_shapes_by_color),
@@ -722,7 +722,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(substates_for_each_image),
         step_all!(substates_for_each_color),
         step_each!(filter_shapes_by_color),
-        step_each!(order_shapes_by_size_decreasing),
+        step_each!(order_shapes_by_weight_decreasing),
         step_all!(save_first_shape_use_the_rest),
         step_each!(move_shapes_to_touch_saved_shape),
     ],
@@ -749,6 +749,14 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(order_colors_by_shapes),
         step_all!(use_relative_colors),
         step_all!(make_common_output_image),
+    ],
+    &[
+        // 28
+        step_all!(use_colorsets_as_shapes),
+        step_each!(order_shapes_by_bb_size_increasing),
+        step_all!(take_first_shape_save_the_rest),
+        step_each!(crop_to_shape),
+        step_each!(inset_by_one),
     ],
     &[
         // 71
@@ -781,6 +789,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(make_image_symmetrical),
         step_each!(order_shapes_by_color),
         step_each!(order_shapes_from_left_to_right),
+        step_each!(order_shapes_by_bb_size_decreasing),
         step_each!(pick_bottom_right_shape),
         step_each!(place_shapes_best_match_with_just_translation),
         step_each!(repeat_shapes_horizontally),
