@@ -85,7 +85,7 @@ where
         .iter()
         .enumerate()
         .filter_map(|(i, shapes)| {
-            let dots: usize = shapes.iter().map(|shape| shape.cells.len()).sum();
+            let dots: usize = shapes.iter().map(|shape| shape.pixels.len()).sum();
             if i >= s.output_images.len() || dots == 0 || dots > 5 {
                 None
             } else {
@@ -106,7 +106,7 @@ where
         Ok(pattern) => s.apply(|s: &mut SolverState, i: usize| {
             let mut new_image = (*s.images[i]).clone();
             for dots in &s.shapes[i] {
-                for dot in dots.cells.iter() {
+                for dot in dots.cells() {
                     new_image.draw_shape_at(&pattern, dot.pos());
                 }
             }
@@ -417,11 +417,7 @@ pub fn use_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 pub fn use_image_without_background_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
-    let mut shape = Shape::from_image(&s.images[i]);
-    shape.discard_color(0);
-    if shape.cells.is_empty() {
-        return Err(err!("no non-background cells"));
-    }
+    let shape = Shape::from_image(&s.images[i]).discard_color(0)?;
     s.shapes[i] = vec![shape.into()];
     Ok(())
 }
@@ -469,7 +465,7 @@ pub fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
     let shapes = &s.shapes[0];
     let colors: Res<Vec<i32>> = shapes
         .iter()
-        .map(|shape| s.output_images[0].get(shape.cells[0].x, shape.cells[0].y))
+        .map(|shape| s.output_images[0].get(shape.cell0().x, shape.cell0().y))
         .collect();
     let mut colors = colors?;
     if colors.is_empty() {
@@ -479,7 +475,7 @@ pub fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
     // Fail the operation if any shape in any output has a different color.
     for (i, image) in s.output_images.iter_mut().enumerate() {
         for (j, shape) in &mut s.shapes[i].iter().enumerate() {
-            let cell = &shape.cells[0];
+            let cell = shape.cell0();
             if let Ok(c) = image.get(cell.x, cell.y) {
                 if all_same_color {
                     if c != colors[0] {
@@ -499,14 +495,12 @@ pub fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
     // Recolor shapes.
     for shapes in &mut s.shapes {
         for (j, shape) in shapes.iter_mut().enumerate() {
-            let mut new_shape = (**shape).clone();
             let color = if all_same_color {
                 colors[0]
             } else {
                 colors[j % colors.len()]
             };
-            new_shape.recolor(color);
-            *shape = new_shape.into();
+            *shape = shape.recolor(color).into();
         }
     }
     Ok(())
@@ -531,17 +525,17 @@ pub fn order_shapes_by_color(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 pub fn order_shapes_by_size_decreasing(s: &mut SolverState, i: usize) -> Res<()> {
-    s.shapes[i].sort_by_key(|shape| -(shape.cells.len() as i32));
+    s.shapes[i].sort_by_key(|shape| -(shape.pixels.len() as i32));
     if i < s.output_shapes.len() {
-        s.output_shapes[i].sort_by_key(|shape| -(shape.cells.len() as i32));
+        s.output_shapes[i].sort_by_key(|shape| -(shape.pixels.len() as i32));
     }
     Ok(())
 }
 
 pub fn order_shapes_by_size_increasing(s: &mut SolverState, i: usize) -> Res<()> {
-    s.shapes[i].sort_by_key(|shape| shape.cells.len());
+    s.shapes[i].sort_by_key(|shape| shape.pixels.len());
     if i < s.output_shapes.len() {
-        s.output_shapes[i].sort_by_key(|shape| shape.cells.len());
+        s.output_shapes[i].sort_by_key(|shape| shape.pixels.len());
     }
     Ok(())
 }
@@ -620,7 +614,7 @@ pub fn pick_bottom_right_shape(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes[i];
     let shape = shapes
         .iter()
-        .max_by_key(|shape| shape.cells[0])
+        .max_by_key(|shape| shape.bb.bottom_right())
         .ok_or(err!("no shapes"))?;
     *shapes = vec![shape.clone()];
     Ok(())
@@ -673,33 +667,23 @@ pub fn move_shapes_per_output_shapes(s: &mut SolverState) -> Res<()> {
     must_not_be_empty!(&s.output_shapes);
     let shapes0 = &s.shapes[0];
     let output_shapes0 = &s.output_shapes[0];
-    let relative_output_shapes0: Shapes = output_shapes0
-        .iter()
-        .map(|shape| shape.to_relative_pos().into())
-        .collect();
     // Figure out the offset.
     let in00 = shapes0.get(0).ok_or(err!("no shape"))?;
     let out0_index = in00
-        .to_relative_pos()
-        .find_matching_shape_index(&relative_output_shapes0)
+        .find_matching_shape_index(&output_shapes0)
         .ok_or(err!("no match"))?;
     let out0 = &output_shapes0[out0_index];
-    let offset = in00.cells[0] - out0.cells[0];
+    let offset = in00.bb.top_left() - out0.bb.top_left();
     // Confirm that this offset is correct for all shapes in all examples.
     for i in 0..s.output_images.len() {
         let shapes = &s.shapes[i];
         let output_shapes = &s.output_shapes[i];
-        let relative_output_shapes: Shapes = output_shapes
-            .iter()
-            .map(|shape| shape.to_relative_pos().into())
-            .collect();
         for shape in shapes {
             let out_index = shape
-                .to_relative_pos()
-                .find_matching_shape_index(&relative_output_shapes)
+                .find_matching_shape_index(&output_shapes)
                 .ok_or(err!("no match"))?;
             let out = &output_shapes[out_index];
-            if shape.cells[0] - out.cells[0] != offset {
+            if shape.bb.top_left() - out.bb.top_left() != offset {
                 return Err(err!("offsets don't match"));
             }
         }
@@ -755,13 +739,12 @@ pub fn move_saved_shape_to_cover_current_shape_max(s: &mut SolverState, i: usize
     let mut moved: Shape = (**saved_shape).clone();
     for distance in (1..10).rev() {
         for direction in Vec2::DIRECTIONS8 {
-            moved.move_by_mut(distance * direction);
+            moved.move_to_mut(saved_shape.bb.top_left() + distance * direction);
             if moved.covers(current_shape) {
                 s.shapes[i] = vec![moved.into()];
                 s.last_move[i] = distance * direction;
                 return Ok(());
             }
-            moved.restore_from(&saved_shape);
         }
     }
     Err(err!("no move found"))
@@ -791,8 +774,7 @@ pub fn recolor_saved_shapes_to_current_shape(s: &mut SolverState, i: usize) -> R
     let color = current_shape.color();
     let mut new_saved_shapes = vec![];
     for saved_shape in saved_shapes {
-        let mut new_shape = (**saved_shape).clone();
-        new_shape.recolor(color);
+        let new_shape = saved_shape.recolor(color);
         new_saved_shapes.push(new_shape.into());
     }
     let len = s.saved_shapes.len();
@@ -935,7 +917,7 @@ pub fn repeat_shapes_on_lattice_per_reference(
 ) -> Res<()> {
     // Make sure the shapes are not tiny.
     for shapes_per in &s.shapes {
-        let total_cells: usize = shapes_per.iter().map(|s| s.cells.len()).sum();
+        let total_cells: usize = shapes_per.iter().map(|s| s.pixels.len()).sum();
         if total_cells < 4 {
             return Err(err!("shapes too small"));
         }
@@ -1179,14 +1161,14 @@ pub fn connect_aligned_pixels_in_shapes(s: &mut SolverState, i: usize) -> Res<()
     for shape in &s.shapes[i] {
         let bb = shape.bb;
         let shape_as_image = shape.as_image();
-        for cell in &shape.cells {
+        for cell in shape.cells() {
             for dir in Vec2::DIRECTIONS4 {
                 for distance in 1..10 {
-                    let image_pos = *cell + distance * dir;
+                    let image_pos = cell + distance * dir;
                     let shape_pos = image_pos - bb.top_left();
                     if shape_as_image.get_or(shape_pos.x, shape_pos.y, 0) != 0 {
                         for d in 1..distance {
-                            let pos = *cell + d * dir;
+                            let pos = cell + d * dir;
                             let _ = new_image.set(pos.x, pos.y, cell.color);
                         }
                     }
@@ -1364,18 +1346,12 @@ pub fn shapes_to_number_sequence(s: &mut SolverState, i: usize) -> Res<()> {
     s.number_sequences[i] = (0..s.shapes[i].len() as i32).collect();
     if i < s.output_shapes.len() {
         // The output is harder. We need to find the shapes in the output image.
-        let output_shapes = &s.output_shapes[i];
         // Then identify which of the input shapes they correspond to.
-        let relative_input_shapes: Shapes = s.shapes[i]
-            .iter()
-            .map(|shape| shape.to_relative_pos().into())
-            .collect();
-        s.output_number_sequences[i] = output_shapes
+        s.output_number_sequences[i] = s.output_shapes[i]
             .iter()
             .map(|output_shape| {
                 output_shape
-                    .to_relative_pos()
-                    .find_matching_shape_index(&relative_input_shapes)
+                    .find_matching_shape_index(&s.shapes[i])
                     .map(|index| index as i32)
                     .unwrap_or(-1)
             })
@@ -1414,20 +1390,16 @@ pub fn solve_number_sequence(s: &mut SolverState) -> Res<()> {
 /// Put the shapes after each other from left to right.
 pub fn number_sequence_to_shapes_left_to_right(s: &mut SolverState, i: usize) -> Res<()> {
     must_not_be_empty!(s.number_sequences);
-    let relative_shapes: Vec<Shape> = s.shapes[i]
-        .iter()
-        .map(|shape| shape.to_relative_pos())
-        .collect();
     let mut shapes: Shapes = vec![];
     let mut next_x = 0;
     for &index in &s.number_sequences[i] {
         if index < 0 {
             return Err(err!("invalid index"));
         }
-        let shape = relative_shapes
+        let shape = s.shapes[i]
             .get(index as usize)
             .ok_or(err!("no shape for index"))?
-            .move_by(Vec2 { x: next_x, y: 0 });
+            .move_to(Vec2 { x: next_x, y: 0 });
         next_x += shape.bb.width();
         shapes.push(shape.into());
     }
@@ -1732,11 +1704,10 @@ pub fn make_common_output_image(s: &mut SolverState) -> Res<()> {
 /// Takes the output shapes from all outputs. Deduplicates them.
 pub fn take_all_shapes_from_output(s: &mut SolverState) -> Res<()> {
     let mut new_shapes: Shapes = vec![];
-    for s in &s.output_shapes {
-        for shape in s {
-            let rel = shape.to_relative_pos();
-            if !new_shapes.iter().any(|s| **s == rel) {
-                new_shapes.push(rel.into());
+    for shapes in &s.output_shapes {
+        for shape in shapes {
+            if !new_shapes.iter().any(|s| s.pixels == shape.pixels) {
+                new_shapes.push(shape.clone());
             }
         }
     }
@@ -1769,7 +1740,7 @@ pub fn cover_image_with_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     cover_image_with_shapes_recursive(&mut state, 0)?;
     let mut new_shapes = vec![];
     for (i, pos) in state.placements {
-        let shape = state.shapes[i].move_by(pos);
+        let shape = state.shapes[i].move_to(pos);
         new_shapes.push(shape.into());
     }
     s.shapes[i] = new_shapes;
@@ -1777,7 +1748,7 @@ pub fn cover_image_with_shapes(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 /// Places one shape in a possible position, then recurses.
-pub fn cover_image_with_shapes_recursive(mut state: &mut CoverageState, min_y: i32) -> Res<()> {
+fn cover_image_with_shapes_recursive(mut state: &mut CoverageState, min_y: i32) -> Res<()> {
     if state.still_uncovered == 0 {
         return Ok(());
     }
@@ -1790,7 +1761,7 @@ pub fn cover_image_with_shapes_recursive(mut state: &mut CoverageState, min_y: i
                     continue;
                 }
                 // Check if it can be placed here.
-                for cell in &shape.cells {
+                for cell in &*shape.pixels {
                     if state.image.get_or(cell.x + x, cell.y + y, 0) == 0 {
                         continue 'next;
                     }
@@ -1800,7 +1771,7 @@ pub fn cover_image_with_shapes_recursive(mut state: &mut CoverageState, min_y: i
                 }
                 // Place it here.
                 state.placements.push((i, Vec2 { x, y }));
-                for cell in &shape.cells {
+                for cell in &*shape.pixels {
                     state.is_covered[(cell.y + y) as usize][(cell.x + x) as usize] = true;
                     state.still_uncovered -= 1;
                 }
@@ -1812,7 +1783,7 @@ pub fn cover_image_with_shapes_recursive(mut state: &mut CoverageState, min_y: i
                     return Err(err!("budget exhausted"));
                 }
                 state.placements.pop();
-                for cell in &shape.cells {
+                for cell in &*shape.pixels {
                     state.is_covered[(cell.y + y) as usize][(cell.x + x) as usize] = false;
                     state.still_uncovered += 1;
                 }
@@ -1842,8 +1813,8 @@ pub fn order_colors_and_shapes_by_output_frequency_increasing(s: &mut SolverStat
 pub fn atomize_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let mut new_shapes = vec![];
     for shape in &s.shapes[i] {
-        for cell in &shape.cells {
-            new_shapes.push(Shape::new(vec![*cell]).into());
+        for cell in shape.cells() {
+            new_shapes.push(Shape::new(vec![cell]).into());
         }
     }
     s.shapes[i] = new_shapes;
@@ -1865,7 +1836,7 @@ pub fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
         let image = &s.output_images[i];
         let (w, h) = tools::width_and_height(image);
         for shape in &s.shapes[i] {
-            for &tools::Pixel { x, y, color } in &shape.cells {
+            for tools::Pixel { x, y, color } in shape.cells() {
                 if x < 0 || x >= w || y < 0 || y >= h {
                     return Err(err!("shape out of bounds"));
                 }
@@ -1917,7 +1888,7 @@ pub fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
 pub fn dots_to_lines(shapes: &Shapes, is_horizontal: &Vec<bool>, image: &mut Image) {
     let (w, h) = tools::width_and_height(image);
     for shape in shapes {
-        for &tools::Pixel { x, y, color } in &shape.cells {
+        for tools::Pixel { x, y, color } in shape.cells() {
             if is_horizontal[color as usize] {
                 for ix in 0..w {
                     image[(ix as usize, y as usize)] = color;
@@ -1934,11 +1905,11 @@ pub fn dots_to_lines(shapes: &Shapes, is_horizontal: &Vec<bool>, image: &mut Ima
 /// Deletes a few pixels from colors that are otherwise unused.
 pub fn delete_noise(s: &mut SolverState, i: usize) -> Res<()> {
     let cs = &s.colorsets[i];
-    let counts: Vec<usize> = cs.iter().map(|c| c.cells.len()).collect();
+    let counts: Vec<usize> = cs.iter().map(|c| c.pixels.len()).collect();
     let total: usize = counts.iter().sum();
     let small: Vec<&Rc<Shape>> = cs
         .iter()
-        .filter(|shape| (**shape).cells.len() <= total / 8)
+        .filter(|shape| (**shape).pixels.len() <= total / 8)
         .collect();
     if small.is_empty() {
         return Err("no change");
@@ -1994,12 +1965,10 @@ pub fn recolor_shapes_to_selected_color(s: &mut SolverState, i: usize) -> Res<()
     let mut any_change = false;
     for shapes in &mut s.shapes {
         for shape in shapes {
-            let mut new_shape = (**shape).clone();
             if shape.color() != new_color {
                 any_change = true;
             }
-            new_shape.recolor(new_color);
-            *shape = new_shape.into();
+            *shape = shape.recolor(new_color).into();
         }
     }
     if !any_change {
