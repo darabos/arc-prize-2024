@@ -744,6 +744,13 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(remap_colors_per_output),
     ],
     &[
+        // 27
+        step_each!(order_shapes_from_top_to_bottom),
+        step_each!(order_colors_by_shapes),
+        step_all!(use_relative_colors),
+        step_all!(make_common_output_image),
+    ],
+    &[
         // 71
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_xor),

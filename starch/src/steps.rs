@@ -547,6 +547,13 @@ pub fn order_shapes_from_left_to_right(s: &mut SolverState, i: usize) -> Res<()>
     }
     Ok(())
 }
+pub fn order_shapes_from_top_to_bottom(s: &mut SolverState, i: usize) -> Res<()> {
+    s.shapes[i].sort_by_key(|shape| shape.bb.top);
+    if i < s.output_shapes.len() {
+        s.output_shapes[i].sort_by_key(|shape| shape.bb.top);
+    }
+    Ok(())
+}
 
 pub fn find_repeating_pattern_in_shape(s: &mut SolverState, i: usize) -> Res<()> {
     let (width, height) = s.width_and_height(i);
@@ -1454,6 +1461,7 @@ pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
 /// Maps everything to s.colors[0]. Restores the original colors at the end.
 /// For example, if colors[0] is [red, blue], and colors[1] is [purple, green],
 /// then in image 1 purple will be mapped to red, and green will be mapped to blue.
+/// Also affects the output images.
 pub fn use_relative_colors(s: &mut SolverState) -> Res<()> {
     let mut new_images: ImagePerExample = vec![s.images[0].clone()];
     let mut any_modified = false;
