@@ -47,6 +47,14 @@ pub struct Rect {
     pub right: i32,
 }
 impl Rect {
+    pub fn empty() -> Rect {
+        Rect {
+            top: std::i32::MAX,
+            left: std::i32::MAX,
+            bottom: std::i32::MIN,
+            right: std::i32::MIN,
+        }
+    }
     pub fn bottom_right(&self) -> Vec2 {
         Vec2 {
             x: self.right - 1,
@@ -79,24 +87,16 @@ impl Shape {
     pub fn new(mut cells: Vec<Pixel>) -> Shape {
         assert!(!cells.is_empty());
         cells.sort();
-        let mut top = std::i32::MAX;
-        let mut left = std::i32::MAX;
-        let mut bottom = std::i32::MIN;
-        let mut right = std::i32::MIN;
-        for Pixel { x, y, color: _ } in &cells {
-            top = top.min(*y);
-            left = left.min(*x);
-            bottom = bottom.max(*y);
-            right = right.max(*x);
+        let mut bb = Rect::empty();
+        for &Pixel { x, y, color: _ } in &cells {
+            bb.top = bb.top.min(y);
+            bb.left = bb.left.min(x);
+            bb.bottom = bb.bottom.max(y);
+            bb.right = bb.right.max(x);
         }
         Shape {
             cells,
-            bb: Rect {
-                top,
-                left,
-                bottom,
-                right,
-            },
+            bb,
             has_relative_colors: false,
             has_relative_positions: false,
         }

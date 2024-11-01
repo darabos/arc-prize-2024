@@ -2,21 +2,27 @@ use crate::tools::{write_color, Color, Pixel, Res, Shape, Vec2};
 
 impl std::ops::Index<(usize, usize)> for Image {
     type Output = Color;
-    fn index<'a>(&'a self, (x, y): (usize, usize)) -> &'a Color {
-        &self.pixels[y * self.width + x]
+    fn index(&self, (x, y): (usize, usize)) -> &Color {
+        match &self.subimage {
+            Some(subimage) => &subimage.full_image[(subimage.left + x, subimage.top + y)],
+            None => &self.pixels[y * self.width + x],
+        }
     }
 }
 
 impl std::ops::IndexMut<(usize, usize)> for Image {
-    fn index_mut<'a>(&'a mut self, (x, y): (usize, usize)) -> &'a mut Color {
-        &mut self.pixels[y * self.width + x]
+    fn index_mut<'a>(&mut self, (x, y): (usize, usize)) -> &mut Color {
+        match &mut self.subimage {
+            Some(subimage) => &mut subimage.full_image[(subimage.left + x, subimage.top + y)],
+            None => &mut self.pixels[y * self.width + x],
+        }
     }
 }
 impl std::fmt::Display for Image {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for row in self.rows() {
-            for cell in row {
-                write_color(f, *cell);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                write_color(f, self[(x, y)]);
             }
             writeln!(f)?;
         }
@@ -25,10 +31,18 @@ impl std::fmt::Display for Image {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+pub struct SubImageSpec {
+    pub top: usize,
+    pub left: usize,
+    pub full_image: Box<Image>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct Image {
     pub width: usize,
     pub height: usize,
-    pub pixels: Vec<Color>,
+    pixels: Vec<Color>,
+    pub subimage: Option<SubImageSpec>,
 }
 
 impl Image {
@@ -37,10 +51,28 @@ impl Image {
             width,
             height,
             pixels: vec![0; width * height],
+            subimage: None,
         }
     }
-    pub fn rows(&self) -> std::slice::Chunks<'_, Color> {
-        self.pixels.chunks(self.width)
+    pub fn subimage(&self, left: usize, top: usize, width: usize, height: usize) -> Image {
+        assert!(left + width <= self.width);
+        assert!(top + height <= self.height);
+        Image {
+            width,
+            height,
+            pixels: vec![],
+            subimage: Some(SubImageSpec {
+                top,
+                left,
+                full_image: Box::new(self.clone()),
+            }),
+        }
+    }
+    pub fn full(&self) -> &Image {
+        match &self.subimage {
+            Some(subimage) => &subimage.full_image,
+            None => self,
+        }
     }
     pub fn is_empty(&self) -> bool {
         self.width == 0 && self.height == 0
@@ -60,6 +92,10 @@ impl Image {
             }
         }
         Ok(())
+    }
+    /// Returns an iterator over all the color values.
+    pub fn colors_iter(&self) -> impl Iterator<Item = Color> + '_ {
+        (0..self.width * self.height).map(|i| self[(i % self.width, i / self.width)])
     }
     pub fn get(&self, x: i32, y: i32) -> Res<Color> {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {

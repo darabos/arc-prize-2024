@@ -210,7 +210,7 @@ impl SolverState {
                 .zip(state.task.train.iter().chain(state.task.test.iter()))
                 .map(|(image, example)| Example {
                     input: example.input.clone(),
-                    output: (**image).clone(),
+                    output: (**image).full().clone(),
                 })
                 .collect()
         }
@@ -715,14 +715,14 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     ],
     &[
         // 26
-        // step_each!(zoom_to_content),
-        // step_each!(extend_zoom_up_left_until_square),
-        // step_each!(make_image_rotationally_symmetrical),
-        // step_each!(use_previous_color),
-        // step_each!(recolor_image_to_selected_color),
-        // step_each!(draw_shapes),
-        // step_all!(remap_colors_per_output),
-        // step_all!(print_images_step),
+        step_each!(zoom_to_content),
+        step_each!(extend_zoom_up_left_until_square),
+        step_each!(make_image_rotationally_symmetrical),
+        step_each!(use_previous_color),
+        step_each!(recolor_image_to_selected_color),
+        step_each!(draw_shapes),
+        step_all!(print_images_step),
+        step_all!(remap_colors_per_output),
     ],
     &[
         // 71

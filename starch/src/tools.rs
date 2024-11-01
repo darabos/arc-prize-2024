@@ -1,5 +1,5 @@
-pub use crate::image::Image;
-pub use crate::shape::{Line, LineSet, Lines, Pixel, Shape};
+pub use crate::image::{Image, SubImageSpec};
+pub use crate::shape::{Line, LineSet, Lines, Pixel, Rect, Shape};
 use colored;
 use colored::Colorize;
 use std::rc::Rc;
@@ -601,8 +601,8 @@ pub fn draw_shape_with_relative_colors_at(
 }
 
 pub fn count_colors_in_image(image: &Image, counts: &mut Vec<usize>) {
-    for c in &image.pixels {
-        counts[*c as usize] += 1;
+    for c in image.colors_iter() {
+        counts[c as usize] += 1;
     }
 }
 
@@ -710,7 +710,7 @@ pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
 
 /// Returns the number of non-zero pixels in the image.
 pub fn count_non_zero_pixels(image: &Image) -> usize {
-    image.pixels.iter().filter(|&&cell| cell != 0).count()
+    image.colors_iter().filter(|&cell| cell != 0).count()
 }
 
 pub fn width_and_height(image: &Image) -> (i32, i32) {

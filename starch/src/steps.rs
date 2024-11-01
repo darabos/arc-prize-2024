@@ -1,6 +1,6 @@
 use crate::solvers::*;
 use crate::tools;
-use crate::tools::{Example, Image, Res, Shape, Task, Vec2, COLORS};
+use crate::tools::{Image, Res, Shape, SubImageSpec, Vec2, COLORS};
 use std::rc::Rc;
 
 macro_rules! err {
@@ -1042,8 +1042,11 @@ pub fn remove_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
                 break;
             }
         }
-        let start = y as usize * image.width;
-        new_image.push(image.pixels[start..start + image.width].to_vec());
+        let mut row = vec![];
+        for x in 0..image.width {
+            row.push(image[(x, y as usize)]);
+        }
+        new_image.push(row);
     }
     if new_image.len() == 0 {
         return Err(err!("nothing left"));
@@ -1122,8 +1125,11 @@ pub fn insert_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
             line_i += 1;
         }
         if y < height {
-            let start = y as usize * image.width;
-            new_image.push(image.pixels[start..start + image.width].to_vec());
+            let mut row = vec![];
+            for x in 0..width {
+                row.push(image[(x as usize, y as usize)]);
+            }
+            new_image.push(row);
         }
     }
     s.images[i] = Rc::new(Image::from_vecvec(new_image));
@@ -1618,7 +1624,7 @@ pub fn make_image_symmetrical(s: &mut SolverState, i: usize) -> Res<()> {
                 (image.height - 1 - y) as usize,
             )],
         )
-    });
+    })?;
     s.images[i] = new_image.into();
     Ok(())
 }
@@ -1695,8 +1701,11 @@ pub fn deduplicate_vertically(s: &mut SolverState, i: usize) -> Res<()> {
     let mut new_image = vec![];
     for y in 0..height {
         if !is_duplicate[y as usize] {
-            let start = y as usize * image.width;
-            new_image.push(image.pixels[start..start + image.width].to_vec());
+            let mut row = vec![];
+            for x in 0..width {
+                row.push(image[(x as usize, y as usize)]);
+            }
+            new_image.push(row);
         }
     }
     s.images[i] = Image::from_vecvec(new_image).into();
@@ -1753,7 +1762,7 @@ pub fn cover_image_with_shapes(s: &mut SolverState, i: usize) -> Res<()> {
         image: image.clone(),
         shapes: shapes.clone(),
         is_covered: vec![vec![false; image.width]; image.height],
-        still_uncovered: image.pixels.iter().filter(|&&c| c != 0).count(),
+        still_uncovered: image.colors_iter().filter(|&c| c != 0).count(),
         placements: vec![],
         budget: 1000,
     };
@@ -1996,5 +2005,103 @@ pub fn recolor_shapes_to_selected_color(s: &mut SolverState, i: usize) -> Res<()
     if !any_change {
         return Err("no change");
     }
+    Ok(())
+}
+pub fn zoom_to_content(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    // Work from the bounding boxes of colorsets.
+    let mut bb = tools::Rect::empty();
+    for cs in &s.colorsets[i] {
+        bb.top = bb.top.min(cs.bb.top);
+        bb.left = bb.left.min(cs.bb.left);
+        bb.bottom = bb.bottom.max(cs.bb.bottom);
+        bb.right = bb.right.max(cs.bb.right);
+    }
+    if bb.top == 0
+        && bb.left == 0
+        && bb.bottom == image.height as i32
+        && bb.right == image.width as i32
+    {
+        return Err("no change");
+    }
+    if bb.bottom < 0 {
+        return Err(err!("no content"));
+    }
+    let new_image = image.subimage(
+        bb.left as usize,
+        bb.top as usize,
+        bb.width() as usize,
+        bb.height() as usize,
+    );
+    s.images[i] = new_image.into();
+    Ok(())
+}
+pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    if image.width < image.height {
+        let extension = image.height - image.width;
+        match &image.subimage {
+            Some(SubImageSpec {
+                top,
+                left,
+                full_image,
+            }) => {
+                if *left < extension {
+                    return Err("no change");
+                }
+                let new_image = full_image.subimage(
+                    left - extension,
+                    *top,
+                    image.width + extension,
+                    image.height,
+                );
+                s.images[i] = new_image.into();
+                Ok(())
+            }
+            None => Err(err!("not zoomed in")),
+        }
+    } else if image.width > image.height {
+        let extension = image.width - image.height;
+        match &image.subimage {
+            Some(SubImageSpec {
+                top,
+                left,
+                full_image,
+            }) => {
+                if *top < extension {
+                    return Err("no change");
+                }
+                let new_image = full_image.subimage(
+                    *left,
+                    top - extension,
+                    image.width,
+                    image.height + extension,
+                );
+                s.images[i] = new_image.into();
+                Ok(())
+            }
+            None => Err(err!("not zoomed in")),
+        }
+    } else {
+        Err("no change")
+    }
+}
+pub fn recolor_image_to_selected_color(s: &mut SolverState, i: usize) -> Res<()> {
+    let new_color = s.colors[i][0];
+    let mut any_change = false;
+    let mut new_image = (*s.images[i]).clone();
+    for y in 0..new_image.height {
+        for x in 0..new_image.width {
+            let c = new_image[(x, y)];
+            if c != 0 && c != new_color {
+                any_change = true;
+                new_image[(x, y)] = new_color;
+            }
+        }
+    }
+    if !any_change {
+        return Err("no change");
+    }
+    s.images[i] = new_image.into();
     Ok(())
 }
