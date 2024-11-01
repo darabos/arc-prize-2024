@@ -358,6 +358,12 @@ impl std::ops::Add<Vec2> for Pixel {
         }
     }
 }
+impl std::ops::AddAssign for Vec2 {
+    fn add_assign(&mut self, other: Vec2) {
+        self.x += other.x;
+        self.y += other.y;
+    }
+}
 
 pub fn reverse_colors(colors: &[i32]) -> Vec<i32> {
     let mut reverse_colors = vec![-1; COLORS.len()];
@@ -457,11 +463,11 @@ pub fn place_shape(image: &Image, shape: &Shape) -> Res<ShapePlacement> {
         for x in (-shape.bb.width() + 1)..image.width as i32 {
             let pos = Vec2 { x, y };
             let mut match_count = 0;
-            for Pixel { x, y, color } in &shape.cells {
+            for Pixel { x, y, color } in shape.cells() {
                 let ix = pos.x + x - shape.bb.left;
                 let iy = pos.y + y - shape.bb.top;
                 if let Ok(ic) = image.get(ix, iy) {
-                    if ic == *color {
+                    if ic == color {
                         match_count += 1;
                     }
                 }
@@ -480,7 +486,7 @@ pub fn place_shape(image: &Image, shape: &Shape) -> Res<ShapePlacement> {
 pub fn smallest(shapes: &[Shape]) -> &Shape {
     shapes
         .iter()
-        .min_by_key(|shape| shape.cells.len())
+        .min_by_key(|shape| shape.pixels.len())
         .expect("Should have been a shape")
 }
 
@@ -506,14 +512,13 @@ pub fn get_pattern_in_rect(
             let mut agreement = -1;
             'images: for i in 0..images.len() {
                 let image = &images[i];
-                for dot in &dots[i].cells {
+                for dot in dots[i].cells() {
                     let nx = dot.x + dx;
                     let ny = dot.y + dy;
                     // Ignore the dots themselves.
                     if dots[i]
-                        .cells
-                        .iter()
-                        .any(|Pixel { x, y, color: _ }| *x == nx && *y == ny)
+                        .cells()
+                        .any(|Pixel { x, y, color: _ }| x == nx && y == ny)
                     {
                         continue;
                     }
@@ -545,7 +550,7 @@ pub fn find_pattern_in_square(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<
         let p = get_pattern_with_radius(&images, &dots, radius)?;
         if let Some(last_pattern) = last_pattern {
             // No improvement. We're done.
-            if p.cells.len() <= last_pattern.cells.len() {
+            if p.pixels.len() <= last_pattern.pixels.len() {
                 return Ok(last_pattern);
             }
         }
@@ -560,7 +565,7 @@ pub fn find_pattern_horizontally(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> R
         let p = get_pattern_in_rect(&images, &dots, -radius, radius, 0, 0)?;
         if let Some(last_pattern) = last_pattern {
             // No improvement. We're done.
-            if p.cells.len() <= last_pattern.cells.len() {
+            if p.pixels.len() <= last_pattern.pixels.len() {
                 return Ok(last_pattern);
             }
         }
@@ -575,7 +580,7 @@ pub fn find_pattern_vertically(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res
         let p = get_pattern_in_rect(&images, &dots, 0, 0, -radius, radius)?;
         if let Some(last_pattern) = last_pattern {
             // No improvement. We're done.
-            if p.cells.len() <= last_pattern.cells.len() {
+            if p.pixels.len() <= last_pattern.pixels.len() {
                 return Ok(last_pattern);
             }
         }
@@ -590,13 +595,13 @@ pub fn draw_shape_with_relative_colors_at(
     colors: &[i32],
     pos: &Vec2,
 ) {
-    for Pixel { x, y, color } in &shape.cells {
+    for Pixel { x, y, color } in shape.cells() {
         let nx = pos.x + x;
         let ny = pos.y + y;
         if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
             continue;
         }
-        image[(nx as usize, ny as usize)] = colors[*color as usize];
+        image[(nx as usize, ny as usize)] = colors[color as usize];
     }
 }
 

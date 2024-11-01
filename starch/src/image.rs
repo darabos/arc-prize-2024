@@ -170,11 +170,11 @@ impl Image {
 
     /// Draws the image in the given color.
     pub fn paint_shape(&mut self, shape: &Shape, color: i32) {
-        for Pixel { x, y, color: _ } in &shape.cells {
-            if *x < 0 || *y < 0 || *x >= self.width as i32 || *y >= self.height as i32 {
+        for Pixel { x, y, color: _ } in shape.cells() {
+            if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
                 continue;
             }
-            self[(*x as usize, *y as usize)] = color;
+            self[(x as usize, y as usize)] = color;
         }
     }
 
@@ -183,29 +183,29 @@ impl Image {
     }
     /// Draws the shape in its original color.
     pub fn draw_shape(&mut self, shape: &Shape) {
-        for Pixel { x, y, color } in &shape.cells {
-            if *x < 0 || *y < 0 || *x >= self.width as i32 || *y >= self.height as i32 {
+        for Pixel { x, y, color } in shape.cells() {
+            if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
                 continue;
             }
-            self[(*x as usize, *y as usize)] = *color;
+            self[(x as usize, y as usize)] = color;
         }
     }
     pub fn draw_shape_with_colors(&mut self, shape: &Shape, colors: &[i32]) {
-        for Pixel { x, y, color } in &shape.cells {
-            if *x < 0 || *y < 0 || *x >= self.width as i32 || *y >= self.height as i32 {
+        for Pixel { x, y, color } in shape.cells() {
+            if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
                 continue;
             }
-            self[(*x as usize, *y as usize)] = colors[*color as usize];
+            self[(x as usize, y as usize)] = colors[color as usize];
         }
     }
     pub fn draw_shape_at(&mut self, shape: &Shape, pos: Vec2) {
-        for Pixel { x, y, color } in &shape.cells {
+        for Pixel { x, y, color } in shape.cells() {
             let nx = pos.x + x;
             let ny = pos.y + y;
             if nx < 0 || ny < 0 || nx >= self.width as i32 || ny >= self.height as i32 {
                 continue;
             }
-            self[(nx as usize, ny as usize)] = *color;
+            self[(nx as usize, ny as usize)] = color;
         }
     }
 
