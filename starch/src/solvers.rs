@@ -9,9 +9,9 @@ macro_rules! err {
     };
 }
 
-pub type Shapes = Vec<Rc<Shape>>;
+pub type Shapes = Vec<Shape>;
 pub type ShapesPerExample = Vec<Shapes>;
-pub type ImagePerExample = Vec<Rc<Image>>;
+pub type ImagePerExample = Vec<Image>;
 pub type ColorList = Vec<i32>;
 pub type ColorListPerExample = Vec<ColorList>;
 pub type LinesPerExample = Vec<Rc<tools::LineSet>>;
@@ -60,16 +60,16 @@ pub struct SolverState {
 
 impl SolverState {
     pub fn new(task: &Task) -> Self {
-        let images: Vec<Rc<Image>> = task
+        let images: Vec<Image> = task
             .train
             .iter()
             .chain(task.test.iter())
-            .map(|example| Rc::new(example.input.clone()))
+            .map(|example| example.input.clone())
             .collect();
         let output_images = task
             .train
             .iter()
-            .map(|example| Rc::new(example.output.clone()))
+            .map(|example| example.output.clone())
             .collect();
         let mut state = SolverState {
             task: Rc::new(task.clone()),
@@ -210,7 +210,7 @@ impl SolverState {
                 .zip(state.task.train.iter().chain(state.task.test.iter()))
                 .map(|(image, example)| Example {
                     input: example.input.clone(),
-                    output: (**image).full(),
+                    output: image.full(),
                 })
                 .collect()
         }

@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::tools::{write_color, Color, Pixel, Res, Shape, Vec2};
 
 impl std::ops::Index<(usize, usize)> for Image {
@@ -6,8 +8,13 @@ impl std::ops::Index<(usize, usize)> for Image {
         &self.pixels[self.full_width * (self.top + y) + self.left + x]
     }
 }
-
-impl std::ops::IndexMut<(usize, usize)> for Image {
+impl std::ops::Index<(usize, usize)> for MutImage {
+    type Output = Color;
+    fn index(&self, (x, y): (usize, usize)) -> &Color {
+        &self.pixels[self.full_width * (self.top + y) + self.left + x]
+    }
+}
+impl std::ops::IndexMut<(usize, usize)> for MutImage {
     fn index_mut<'a>(&mut self, (x, y): (usize, usize)) -> &mut Color {
         &mut self.pixels[self.full_width * (self.top + y) + self.left + x]
     }
@@ -25,7 +32,7 @@ impl std::fmt::Display for Image {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct Image {
+pub struct MutImage {
     pub top: usize,
     pub left: usize,
     pub width: usize,
@@ -35,9 +42,20 @@ pub struct Image {
     pixels: Vec<Color>,
 }
 
-impl Image {
-    pub fn new(width: usize, height: usize) -> Image {
-        Image {
+#[derive(Clone, PartialEq, Eq)]
+pub struct Image {
+    pub top: usize,
+    pub left: usize,
+    pub width: usize,
+    pub height: usize,
+    pub full_width: usize,
+    pub full_height: usize,
+    pixels: Rc<Vec<Color>>,
+}
+
+impl MutImage {
+    pub fn new(width: usize, height: usize) -> MutImage {
+        MutImage {
             top: 0,
             left: 0,
             width,
@@ -47,38 +65,16 @@ impl Image {
             pixels: vec![0; width * height],
         }
     }
-    pub fn subimage(&self, left: usize, top: usize, width: usize, height: usize) -> Image {
-        assert!(left + width <= self.width);
-        assert!(top + height <= self.height);
+    pub fn freeze(self) -> Image {
         Image {
-            top: self.top + top,
-            left: self.left + left,
-            width,
-            height,
+            top: self.top,
+            left: self.left,
+            width: self.width,
+            height: self.height,
             full_width: self.full_width,
             full_height: self.full_height,
-            pixels: self.pixels.clone(),
+            pixels: Rc::new(self.pixels),
         }
-    }
-    pub fn is_zoomed(&self) -> bool {
-        self.top > 0
-            || self.left > 0
-            || self.width != self.full_width
-            || self.height != self.full_height
-    }
-    pub fn full(&self) -> Image {
-        Image {
-            top: 0,
-            left: 0,
-            width: self.full_width,
-            height: self.full_height,
-            full_width: self.full_width,
-            full_height: self.full_height,
-            pixels: self.pixels.clone(),
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.width == 0 && self.height == 0
     }
     pub fn update(&mut self, f: impl Fn(usize, usize, Color) -> Color) {
         for y in 0..self.height {
@@ -95,10 +91,6 @@ impl Image {
             }
         }
         Ok(())
-    }
-    /// Returns an iterator over all the color values.
-    pub fn colors_iter(&self) -> impl Iterator<Item = Color> + '_ {
-        (0..self.width * self.height).map(|i| self[(i % self.width, i / self.width)])
     }
     pub fn get(&self, x: i32, y: i32) -> Res<Color> {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
@@ -120,42 +112,6 @@ impl Image {
         self[(x as usize, y as usize)] = color;
         Ok(())
     }
-    pub fn print(&self) {
-        println!("{}", self);
-    }
-    pub fn from_vecvec(vecvec: Vec<Vec<Color>>) -> Image {
-        let height = vecvec.len();
-        let width = if height == 0 { 0 } else { vecvec[0].len() };
-        let mut image = Image::new(width, height);
-        for y in 0..height {
-            for x in 0..width {
-                image[(x, y)] = vecvec[y][x];
-            }
-        }
-        image
-    }
-
-    pub fn crop(&self, left: i32, top: i32, width: i32, height: i32) -> Image {
-        assert!(left >= 0);
-        assert!(top >= 0);
-        assert!(left + width <= self.width as i32);
-        assert!(top + height <= self.height as i32);
-        assert!(width >= 0);
-        assert!(height >= 0);
-        let mut new_image = Image::new(width as usize, height as usize);
-        for y in 0..height {
-            for x in 0..width {
-                let nx = left + x;
-                let ny = top + y;
-                if nx < 0 || ny < 0 || nx >= self.width as i32 || ny >= self.height as i32 {
-                    continue;
-                }
-                new_image[(x as usize, y as usize)] = self[(nx as usize, ny as usize)];
-            }
-        }
-        new_image
-    }
-
     pub fn clear(&mut self) {
         for y in 0..self.height {
             for x in 0..self.width {
@@ -163,7 +119,6 @@ impl Image {
             }
         }
     }
-
     /// Draws the image in the given color.
     pub fn paint_shape(&mut self, shape: &Shape, color: i32) {
         for Pixel { x, y, color: _ } in shape.cells() {
@@ -219,5 +174,103 @@ impl Image {
                 }
             }
         }
+    }
+}
+impl Image {
+    pub fn molten(&self) -> MutImage {
+        MutImage {
+            top: self.top,
+            left: self.left,
+            width: self.width,
+            height: self.height,
+            full_width: self.full_width,
+            full_height: self.full_height,
+            pixels: (*self.pixels).clone(),
+        }
+    }
+    pub fn subimage(&self, left: usize, top: usize, width: usize, height: usize) -> Image {
+        assert!(left + width <= self.width);
+        assert!(top + height <= self.height);
+        Image {
+            top: self.top + top,
+            left: self.left + left,
+            width,
+            height,
+            full_width: self.full_width,
+            full_height: self.full_height,
+            pixels: self.pixels.clone(),
+        }
+    }
+    pub fn is_zoomed(&self) -> bool {
+        self.top > 0
+            || self.left > 0
+            || self.width != self.full_width
+            || self.height != self.full_height
+    }
+    pub fn full(&self) -> Image {
+        Image {
+            top: 0,
+            left: 0,
+            width: self.full_width,
+            height: self.full_height,
+            full_width: self.full_width,
+            full_height: self.full_height,
+            pixels: self.pixels.clone(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.width == 0 && self.height == 0
+    }
+
+    /// Returns an iterator over all the color values.
+    pub fn colors_iter(&self) -> impl Iterator<Item = Color> + '_ {
+        (0..self.width * self.height).map(|i| self[(i % self.width, i / self.width)])
+    }
+    pub fn get(&self, x: i32, y: i32) -> Res<Color> {
+        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+            return Err("out of bounds");
+        }
+        Ok(self[(x as usize, y as usize)])
+    }
+    pub fn get_or(&self, x: i32, y: i32, default: Color) -> Color {
+        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+            return default;
+        }
+        self[(x as usize, y as usize)]
+    }
+    pub fn print(&self) {
+        println!("{}", self);
+    }
+    pub fn from_vecvec(vecvec: Vec<Vec<Color>>) -> Image {
+        let height = vecvec.len();
+        let width = if height == 0 { 0 } else { vecvec[0].len() };
+        let mut image = MutImage::new(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                image[(x, y)] = vecvec[y][x];
+            }
+        }
+        image.freeze()
+    }
+
+    pub fn crop(&self, left: i32, top: i32, width: i32, height: i32) -> Image {
+        assert!(left >= 0);
+        assert!(top >= 0);
+        assert!(left + width <= self.width as i32);
+        assert!(top + height <= self.height as i32);
+        assert!(width >= 0);
+        assert!(height >= 0);
+        let mut new_image = MutImage::new(width as usize, height as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let nx = left + x;
+                let ny = top + y;
+                if nx < 0 || ny < 0 || nx >= self.width as i32 || ny >= self.height as i32 {
+                    continue;
+                }
+                new_image[(x as usize, y as usize)] = self[(nx as usize, ny as usize)];
+            }
+        }
+        new_image.freeze()
     }
 }

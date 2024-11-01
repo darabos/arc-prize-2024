@@ -1,4 +1,4 @@
-pub use crate::image::Image;
+pub use crate::image::{Image, MutImage};
 pub use crate::shape::{Line, LineSet, Lines, Pixel, Rect, Shape};
 use colored;
 use colored::Colorize;
@@ -118,7 +118,7 @@ pub fn print_task(task: &Task) {
 
 /// Each shape is a single color. Includes color 0.
 #[must_use]
-pub fn find_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>> {
+pub fn find_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Shape> {
     let mut shapes = vec![];
     let mut visited = vec![vec![false; image.width]; image.height];
     for y in 0..image.height {
@@ -156,7 +156,7 @@ pub fn find_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>
                 }
                 i += 1;
             }
-            shapes.push(Rc::new(Shape::new(cells)));
+            shapes.push(Shape::new(cells));
         }
     }
     shapes
@@ -164,7 +164,7 @@ pub fn find_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>
 
 /// Shapes can include different colors. Color 0 is the separator.
 #[must_use]
-pub fn find_multicolor_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Rc<Shape>> {
+pub fn find_multicolor_shapes_in_image(image: &Image, directions: &[Vec2]) -> Vec<Shape> {
     let mut shapes = vec![];
     let mut visited = vec![vec![false; image.width]; image.height];
     for y in 0..image.height {
@@ -205,17 +205,14 @@ pub fn find_multicolor_shapes_in_image(image: &Image, directions: &[Vec2]) -> Ve
                 }
                 i += 1;
             }
-            shapes.push(Rc::new(Shape::new(cells)));
+            shapes.push(Shape::new(cells));
         }
     }
     shapes
 }
 
 #[must_use]
-pub fn discard_background_shapes_touching_border(
-    image: &Image,
-    shapes: Vec<Rc<Shape>>,
-) -> Vec<Rc<Shape>> {
+pub fn discard_background_shapes_touching_border(image: &Image, shapes: Vec<Shape>) -> Vec<Shape> {
     shapes
         .into_iter()
         .filter(|shape| shape.color() != 0 || !shape.is_touching_border(&image))
@@ -223,7 +220,7 @@ pub fn discard_background_shapes_touching_border(
 }
 
 /// Finds "colorsets" in the image. A colorset is a set of all pixels with the same color.
-pub fn find_colorsets_in_image(image: &Image) -> Vec<Rc<Shape>> {
+pub fn find_colorsets_in_image(image: &Image) -> Vec<Shape> {
     // Create blank colorset for each color.
     let mut colorsets = vec![vec![]; COLORS.len()];
     for y in 0..image.height {
@@ -239,11 +236,11 @@ pub fn find_colorsets_in_image(image: &Image) -> Vec<Rc<Shape>> {
             });
         }
     }
-    // Put non-empty colorsets into Rc.
+    // Put non-empty colorsets into Shapes.
     colorsets
         .into_iter()
         .filter(|colorset| !colorset.is_empty())
-        .map(|colorset| Shape::new(colorset).into())
+        .map(|colorset| Shape::new(colorset))
         .collect()
 }
 
@@ -304,7 +301,7 @@ pub fn find_lines_in_image(image: &Image) -> LineSet {
     }
 }
 
-pub fn shape_by_color(shapes: &[Rc<Shape>], color: i32) -> Option<Rc<Shape>> {
+pub fn shape_by_color(shapes: &[Shape], color: i32) -> Option<Shape> {
     for shape in shapes {
         if shape.color() == color {
             return Some(shape.clone());
@@ -369,9 +366,9 @@ pub fn reverse_colors(colors: &[i32]) -> Vec<i32> {
 
 pub fn map_colors_in_image(image: &Image, colors_before: &[i32], colors_after: &[i32]) -> Image {
     let reversed_before = reverse_colors(colors_before);
-    let mut new_image = image.clone();
+    let mut new_image = image.molten();
     new_image.update(|_x, _y, color| colors_after[reversed_before[color as usize] as usize]);
-    new_image
+    new_image.freeze()
 }
 
 pub fn a_matches_b_where_a_is_not_transparent(a: &Image, b: &Image) -> bool {
@@ -391,11 +388,11 @@ pub fn a_matches_b_where_a_is_not_transparent(a: &Image, b: &Image) -> bool {
 // Moves the first shape pixel by pixel. (Not using bounding boxes.)
 #[must_use]
 pub fn move_shape_to_shape_in_direction(
-    image: &Image,
+    image: &mut MutImage,
     to_move: &Shape,
     move_to: &Shape,
     dir: Vec2,
-) -> Res<Image> {
+) -> Res<()> {
     // Figure out moving distance.
     let mut distance = 1;
     loop {
@@ -415,19 +412,22 @@ pub fn move_shape_to_shape_in_direction(
             return Err("never touched");
         }
     }
-    let mut new_image = image.clone();
     let moved = to_move.move_by(Vec2 {
         x: dir.x * distance,
         y: dir.y * distance,
     });
-    new_image.erase_shape(to_move);
-    new_image.draw_shape(&moved);
-    Ok(new_image)
+    image.erase_shape(to_move);
+    image.draw_shape(&moved);
+    Ok(())
 }
 
 // Moves the first shape in a cardinal direction until it touches the second shape.
 #[must_use]
-pub fn move_shape_to_shape_in_image(image: &Image, to_move: &Shape, move_to: &Shape) -> Res<Image> {
+pub fn move_shape_to_shape_in_image(
+    image: &mut MutImage,
+    to_move: &Shape,
+    move_to: &Shape,
+) -> Res<()> {
     // Find the moving direction.
     if to_move.bb.right < move_to.bb.left {
         return move_shape_to_shape_in_direction(image, to_move, move_to, Vec2::RIGHT);
@@ -484,17 +484,13 @@ pub fn smallest(shapes: &[Shape]) -> &Shape {
         .expect("Should have been a shape")
 }
 
-pub fn get_pattern_with_radius(
-    images: &[Rc<Image>],
-    dots: &[&Rc<Shape>],
-    radius: i32,
-) -> Res<Shape> {
+pub fn get_pattern_with_radius(images: &[Image], dots: &[&Shape], radius: i32) -> Res<Shape> {
     get_pattern_in_rect(images, dots, -radius, radius, -radius, radius)
 }
 
 pub fn get_pattern_in_rect(
-    images: &[Rc<Image>],
-    dots: &[&Rc<Shape>],
+    images: &[Image],
+    dots: &[&Shape],
     min_dx: i32,
     max_dx: i32,
     min_dy: i32,
@@ -538,7 +534,7 @@ pub fn get_pattern_in_rect(
     Shape::if_not_empty(cells)
 }
 
-pub fn find_pattern_in_square(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
+pub fn find_pattern_in_square(images: &[Image], dots: &[&Shape]) -> Res<Shape> {
     let mut last_pattern: Option<Shape> = None;
     for radius in 1..images[0].height as i32 {
         let p = get_pattern_with_radius(&images, &dots, radius)?;
@@ -553,7 +549,7 @@ pub fn find_pattern_in_square(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<
     last_pattern.ok_or("image too small")
 }
 
-pub fn find_pattern_horizontally(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
+pub fn find_pattern_horizontally(images: &[Image], dots: &[&Shape]) -> Res<Shape> {
     let mut last_pattern: Option<Shape> = None;
     for radius in 1..images[0].width as i32 {
         let p = get_pattern_in_rect(&images, &dots, -radius, radius, 0, 0)?;
@@ -568,7 +564,7 @@ pub fn find_pattern_horizontally(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> R
     last_pattern.ok_or("image too small")
 }
 
-pub fn find_pattern_vertically(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res<Shape> {
+pub fn find_pattern_vertically(images: &[Image], dots: &[&Shape]) -> Res<Shape> {
     let mut last_pattern: Option<Shape> = None;
     for radius in 1..images[0].height as i32 {
         let p = get_pattern_in_rect(&images, &dots, 0, 0, -radius, radius)?;
@@ -584,7 +580,7 @@ pub fn find_pattern_vertically(images: &[Rc<Image>], dots: &[&Rc<Shape>]) -> Res
 }
 
 pub fn draw_shape_with_relative_colors_at(
-    image: &mut Image,
+    image: &mut MutImage,
     shape: &Shape,
     colors: &[i32],
     pos: &Vec2,
@@ -605,7 +601,7 @@ pub fn count_colors_in_image(image: &Image, counts: &mut Vec<usize>) {
     }
 }
 
-pub fn get_used_colors(images: &[Rc<Image>]) -> Vec<i32> {
+pub fn get_used_colors(images: &[Image]) -> Vec<i32> {
     let mut counts = vec![0; COLORS.len()];
     for image in images {
         count_colors_in_image(image, &mut counts);
@@ -638,7 +634,7 @@ pub fn scale_up_image(image: &Image, ratio: Vec2) -> Image {
     let (rx, ry) = (ratio.x as usize, ratio.y as usize);
     let height = image.height * ry;
     let width = image.width * rx;
-    let mut new_image = Image::new(width, height);
+    let mut new_image = MutImage::new(width, height);
     for y in 0..image.height {
         for x in 0..image.width {
             let color = image[(x, y)];
@@ -649,13 +645,13 @@ pub fn scale_up_image(image: &Image, ratio: Vec2) -> Image {
             }
         }
     }
-    new_image
+    new_image.freeze()
 }
 
 pub fn tile_image(image: &Image, repeat_x: usize, repeat_y: usize) -> Image {
     let height = image.height;
     let width = image.width;
-    let mut new_image = Image::new(width * repeat_x, height * repeat_y);
+    let mut new_image = MutImage::new(width * repeat_x, height * repeat_y);
     for y in 0..image.height {
         for x in 0..image.width {
             let color = image[(x, y)];
@@ -666,7 +662,7 @@ pub fn tile_image(image: &Image, repeat_x: usize, repeat_y: usize) -> Image {
             }
         }
     }
-    new_image
+    new_image.freeze()
 }
 
 /// Given a grid of lines, returns the images that are separated by the lines.
@@ -747,25 +743,25 @@ pub fn rotate_image(image: &Image, direction: Rotation) -> Image {
 /// Rotates the image 90 degrees clockwise.
 fn rotate_image_cw(image: &Image) -> Image {
     let (width, height) = width_and_height(image);
-    let mut new_image = Image::new(height as usize, width as usize);
+    let mut new_image = MutImage::new(height as usize, width as usize);
     for y in 0..height {
         for x in 0..width {
             new_image[((height - y - 1) as usize, x as usize)] = image[(x as usize, y as usize)];
         }
     }
-    new_image
+    new_image.freeze()
 }
 
 /// Rotates the image 90 degrees counterclockwise.
 fn rotate_image_ccw(image: &Image) -> Image {
     let (width, height) = width_and_height(image);
-    let mut new_image = Image::new(height as usize, width as usize);
+    let mut new_image = MutImage::new(height as usize, width as usize);
     for y in 0..height {
         for x in 0..width {
             new_image[(y as usize, (width - x - 1) as usize)] = image[(x as usize, y as usize)];
         }
     }
-    new_image
+    new_image.freeze()
 }
 
 #[must_use]

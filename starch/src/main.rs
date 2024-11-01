@@ -8,7 +8,7 @@ mod shape;
 mod solvers;
 mod steps;
 mod tools;
-use tools::{Example, Image, Task};
+use tools::{Example, Image, MutImage, Task};
 
 pub fn parse_image(image: &serde_json::Value) -> Image {
     let vecvec: Vec<Vec<i32>> = image
@@ -31,7 +31,7 @@ pub fn parse_example(example: &serde_json::Value) -> Example {
     if example["output"].is_null() {
         return Example {
             input,
-            output: Image::new(0, 0),
+            output: MutImage::new(0, 0).freeze(),
         };
     }
     let output = parse_image(&example["output"]);

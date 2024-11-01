@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::tools::{Color, Image, Res, Vec2};
+use crate::tools::{Color, Image, MutImage, Res, Vec2};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Pixel {
@@ -271,7 +271,7 @@ impl Shape {
         Shape::if_not_empty(new_cells)
     }
 
-    pub fn draw_where_non_empty(&self, image: &mut Image) {
+    pub fn draw_where_non_empty(&self, image: &mut MutImage) {
         for Pixel { x, y, color } in self.cells() {
             if image.get_or(x, y, 0) != 0 {
                 image[(x as usize, y as usize)] = color;
@@ -344,7 +344,7 @@ impl Shape {
 
     /// Requires exact match.
     #[must_use]
-    pub fn find_matching_shape_index(&self, shapes: &[Rc<Shape>]) -> Option<usize> {
+    pub fn find_matching_shape_index(&self, shapes: &[Shape]) -> Option<usize> {
         for (i, shape) in shapes.iter().enumerate() {
             if self.pixels == shape.pixels {
                 return Some(i);
@@ -355,11 +355,11 @@ impl Shape {
 
     #[must_use]
     pub fn as_image(&self) -> Image {
-        let mut image = Image::new(self.bb.width() as usize, self.bb.height() as usize);
+        let mut image = MutImage::new(self.bb.width() as usize, self.bb.height() as usize);
         for Pixel { x, y, color } in self.cells() {
             image[((x - self.bb.left) as usize, (y - self.bb.top) as usize)] = color;
         }
-        image
+        image.freeze()
     }
 
     #[must_use]

@@ -1,6 +1,6 @@
 use crate::solvers::*;
 use crate::tools;
-use crate::tools::{Image, Res, Shape, Vec2, COLORS};
+use crate::tools::{Image, MutImage, Res, Shape, Vec2, COLORS};
 use std::rc::Rc;
 
 macro_rules! err {
@@ -76,7 +76,7 @@ pub fn grow_flowers_vertically(s: &mut SolverState) -> Res<()> {
 
 pub fn grow_flowers<F>(s: &mut SolverState, func: F) -> Res<()>
 where
-    F: Fn(&[Rc<Image>], &[&Rc<Shape>]) -> Res<Shape>,
+    F: Fn(&[Image], &[&Shape]) -> Res<Shape>,
 {
     must_not_be_empty!(&s.output_images);
     // It's okay for some images to not have dots.
@@ -96,21 +96,21 @@ where
     if indexes.is_empty() {
         return Err(err!("no dots"));
     }
-    let dots: Vec<&Rc<Shape>> = indexes.iter().map(|&i| &s.shapes[i][0]).collect();
-    let output_images: Vec<Rc<Image>> = indexes
+    let dots: Vec<&Shape> = indexes.iter().map(|&i| &s.shapes[i][0]).collect();
+    let output_images: Vec<Image> = indexes
         .iter()
         .map(|&i| &s.output_images[i])
         .cloned()
         .collect();
     match func(&output_images, &dots) {
         Ok(pattern) => s.apply(|s: &mut SolverState, i: usize| {
-            let mut new_image = (*s.images[i]).clone();
+            let mut new_image = s.images[i].molten();
             for dots in &s.shapes[i] {
                 for dot in dots.cells() {
                     new_image.draw_shape_at(&pattern, dot.pos());
                 }
             }
-            s.images[i] = Rc::new(new_image);
+            s.images[i] = new_image.freeze();
             Ok(())
         }),
         Err(_) => Ok(()), // We grew a nil pattern.
@@ -205,9 +205,9 @@ pub fn save_whole_image(s: &mut SolverState) -> Res<()> {
 pub fn draw_saved_image(s: &mut SolverState) -> Res<()> {
     let saved_images = s.saved_images.pop().ok_or("no saved images")?;
     for i in 0..s.images.len() {
-        let mut new_image = (*s.images[i]).clone();
-        new_image.draw_image_at(&*saved_images[i], Vec2::ZERO);
-        s.images[i] = new_image.into();
+        let mut new_image = s.images[i].molten();
+        new_image.draw_image_at(&saved_images[i], Vec2::ZERO);
+        s.images[i] = new_image.freeze();
     }
     Ok(())
 }
@@ -320,11 +320,11 @@ pub fn move_shapes_to_touch_saved_shape(s: &mut SolverState, i: usize) -> Res<()
     let shapes = &s.shapes[i];
     let saved_shapes = &s.saved_shapes.last().ok_or("must have saved shapes")?[i];
     let saved_shape = saved_shapes.get(0).ok_or("saved shapes empty")?;
-    let mut new_image = (*s.images[i]).clone();
+    let mut new_image = s.images[i].molten();
     for shape in shapes {
-        new_image = tools::move_shape_to_shape_in_image(&new_image, &shape, &saved_shape)?;
+        tools::move_shape_to_shape_in_image(&mut new_image, &shape, &saved_shape)?;
     }
-    s.images[i] = Rc::new(new_image);
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -357,7 +357,7 @@ pub fn scale_up_image(s: &mut SolverState) -> Res<()> {
         }
     }
     s.apply(|s: &mut SolverState, i: usize| {
-        s.images[i] = Rc::new(tools::scale_up_image(&s.images[i], s.scale_up));
+        s.images[i] = tools::scale_up_image(&s.images[i], s.scale_up);
         Ok(())
     })
 }
@@ -393,7 +393,7 @@ pub fn scale_up_image_add_grid(s: &mut SolverState) -> Res<()> {
         y: (output_height - num_h) / height,
     };
     s.apply(|s: &mut SolverState, i: usize| {
-        s.images[i] = Rc::new(tools::scale_up_image(&s.images[i], s.scale_up));
+        s.images[i] = tools::scale_up_image(&s.images[i], s.scale_up);
         Ok(())
     })?;
     restore_grid(s)
@@ -422,7 +422,7 @@ pub fn tile_image(s: &mut SolverState) -> Res<()> {
         }
     }
     s.apply(|s: &mut SolverState, i: usize| {
-        s.images[i] = Rc::new(tools::tile_image(&s.images[i], scale_x, scale_y));
+        s.images[i] = tools::tile_image(&s.images[i], scale_x, scale_y);
         Ok(())
     })
 }
@@ -455,18 +455,14 @@ pub fn tile_image_add_grid(s: &mut SolverState) -> Res<()> {
     let scale_x = (output_width - num_v) / width;
     let scale_y = (output_height - num_h) / height;
     s.apply(|s: &mut SolverState, i: usize| {
-        s.images[i] = Rc::new(tools::tile_image(
-            &s.images[i],
-            scale_x as usize,
-            scale_y as usize,
-        ));
+        s.images[i] = tools::tile_image(&s.images[i], scale_x as usize, scale_y as usize);
         Ok(())
     })?;
     restore_grid(s)
 }
 
 pub fn use_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
-    s.shapes[i] = vec![Rc::new(Shape::from_image(&s.images[i]))];
+    s.shapes[i] = vec![Shape::from_image(&s.images[i])];
     Ok(())
 }
 
@@ -494,11 +490,11 @@ pub fn tile_shapes_after_scale_up(s: &mut SolverState, i: usize) -> Res<()> {
 
 pub fn draw_shape_where_non_empty(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &s.shapes[i];
-    let mut new_image = (*s.images[i]).clone();
+    let mut new_image = s.images[i].molten();
     for shape in shapes {
         shape.draw_where_non_empty(&mut new_image);
     }
-    s.images[i] = Rc::new(new_image);
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -562,11 +558,11 @@ pub fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
 
 pub fn draw_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &s.shapes[i];
-    let mut new_image = (*s.images[i]).clone();
+    let mut new_image = s.images[i].molten();
     for shape in shapes {
         new_image.draw_shape(shape);
     }
-    s.images[i] = Rc::new(new_image);
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -682,7 +678,7 @@ pub fn use_output_size(s: &mut SolverState) -> Res<()> {
         }
     }
     s.apply(|s: &mut SolverState, i: usize| {
-        s.images[i] = Rc::new(Image::new(output_width as usize, output_height as usize));
+        s.images[i] = MutImage::new(output_width as usize, output_height as usize).freeze();
         Ok(())
     })
 }
@@ -793,12 +789,12 @@ pub fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
             }
             if correct {
                 for i in 0..s.images.len() {
-                    let mut new_image = (*s.images[i]).clone();
+                    let mut new_image = s.images[i].molten();
                     for shape in &shapes[i] {
                         new_image.erase_shape(shape);
                         new_image.draw_shape_at(shape, offset);
                     }
-                    s.images[i] = Rc::new(new_image);
+                    s.images[i] = new_image.freeze();
                 }
                 return Ok(());
             }
@@ -813,7 +809,7 @@ pub fn move_saved_shape_to_cover_current_shape_max(s: &mut SolverState, i: usize
     let saved_shapes = &s.saved_shapes.last().ok_or(err!("no saved shapes"))?[i];
     let current_shape = &s.shapes[i].get(0).ok_or(err!("no current shape"))?;
     let saved_shape = saved_shapes.get(0).ok_or(err!("no saved shape"))?;
-    let mut moved: Shape = (**saved_shape).clone();
+    let mut moved: Shape = saved_shape.clone();
     for distance in (1..10).rev() {
         for direction in Vec2::DIRECTIONS8 {
             moved.move_to_mut(saved_shape.bb.top_left() + distance * direction);
@@ -833,15 +829,15 @@ pub fn repeat_last_move_and_draw(s: &mut SolverState, i: usize) -> Res<()> {
     if s.last_move[i] == Vec2::ZERO {
         return Err(err!("no last move"));
     }
-    let mut shapes: Vec<Shape> = s.shapes[i].iter().map(|shape| (**shape).clone()).collect();
-    let mut new_image = (*s.images[i]).clone();
+    let mut shapes: Vec<Shape> = s.shapes[i].iter().map(|shape| shape.clone()).collect();
+    let mut new_image = s.images[i].molten();
     for _ in 0..10 {
         for shape in &mut shapes {
             new_image.draw_shape(&shape);
             shape.move_by_mut(s.last_move[i]);
         }
     }
-    s.images[i] = Rc::new(new_image);
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -866,8 +862,8 @@ pub fn split_into_two_images(s: &mut SolverState) -> Res<()> {
     if width == output_width * 2 + 1 {
         let mut to_save = vec![];
         for image in &mut s.images {
-            let left_image = Rc::new(image.crop(0, 0, width / 2, height));
-            let right_image = Rc::new(image.crop(width / 2 + 1, 0, width / 2, height));
+            let left_image = image.crop(0, 0, width / 2, height);
+            let right_image = image.crop(width / 2 + 1, 0, width / 2, height);
             *image = left_image;
             to_save.push(right_image);
         }
@@ -876,8 +872,8 @@ pub fn split_into_two_images(s: &mut SolverState) -> Res<()> {
     } else if height == output_height * 2 + 1 {
         let mut to_save = vec![];
         for image in &mut s.images {
-            let top_image = Rc::new(image.crop(0, 0, width, height / 2));
-            let bottom_image = Rc::new(image.crop(0, height / 2 + 1, width, height / 2));
+            let top_image = image.crop(0, 0, width, height / 2);
+            let bottom_image = image.crop(0, height / 2 + 1, width, height / 2);
             *image = top_image;
             to_save.push(bottom_image);
         }
@@ -922,7 +918,7 @@ pub fn boolean_with_saved_image_function(
     if width != saved_width || height != saved_height {
         return Err(err!("images have different sizes"));
     }
-    let mut new_image: Image = (*s.images[i]).clone();
+    let mut new_image = s.images[i].molten();
     for y in 0..new_image.height {
         for x in 0..new_image.width {
             let a = new_image[(x, y)];
@@ -930,7 +926,7 @@ pub fn boolean_with_saved_image_function(
             new_image[(x, y)] = func(a, b);
         }
     }
-    s.images[i] = Rc::new(new_image);
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -941,9 +937,9 @@ pub fn recolor_image_per_output(s: &mut SolverState) -> Res<()> {
     }
     let color = used_colors[0];
     for image in &mut s.images {
-        let mut new_image: Image = (**image).clone();
+        let mut new_image = image.molten();
         new_image.update(|_x, _y, c| if c == 0 { 0 } else { color });
-        *image = new_image.into();
+        *image = new_image.freeze();
     }
     Ok(())
 }
@@ -1043,7 +1039,7 @@ pub fn repeat_shapes_on_lattice(
     for i in 0..s.images.len() {
         let image = &s.images[i];
         let shapes = &s.shapes[i];
-        let mut new_image = (**image).clone();
+        let mut new_image = image.molten();
         for shape in shapes {
             for rep_x in -5..=5 {
                 for rep_y in -5..=5 {
@@ -1055,7 +1051,7 @@ pub fn repeat_shapes_on_lattice(
                 }
             }
         }
-        s.images[i] = Rc::new(new_image);
+        s.images[i] = new_image.freeze();
     }
     Ok(())
 }
@@ -1082,7 +1078,7 @@ pub fn repeat_shapes_horizontally(s: &mut SolverState, i: usize) -> Res<()> {
 
 /// Deletes the lines. We don't erase them -- we completely remove them from the image.
 pub fn remove_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
-    let image = &*s.images[i];
+    let image = &s.images[i];
     let mut new_image = vec![];
     let lines = &s.lines[i].horizontal;
     let mut line_i = 0;
@@ -1110,12 +1106,12 @@ pub fn remove_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
     if new_image.len() == 0 {
         return Err(err!("nothing left"));
     }
-    s.images[i] = Rc::new(Image::from_vecvec(new_image));
+    s.images[i] = Image::from_vecvec(new_image);
     Ok(())
 }
 
 pub fn remove_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
-    let image = &*s.images[i];
+    let image = &s.images[i];
     let mut new_image = vec![];
     let lines = &s.lines[i].vertical;
     let (width, height) = s.width_and_height(i);
@@ -1143,7 +1139,7 @@ pub fn remove_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
         }
         new_image.push(row);
     }
-    s.images[i] = Rc::new(Image::from_vecvec(new_image));
+    s.images[i] = Image::from_vecvec(new_image);
     Ok(())
 }
 
@@ -1170,7 +1166,7 @@ pub fn remove_grid(s: &mut SolverState) -> Res<()> {
 }
 
 pub fn insert_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
-    let image = &*s.images[i];
+    let image = &s.images[i];
     let mut new_image = vec![];
     let lines = &s.saved_lines;
     let lines = &lines[lines.len() - 1][i].horizontal;
@@ -1191,12 +1187,12 @@ pub fn insert_horizontal_lines(s: &mut SolverState, i: usize) -> Res<()> {
             new_image.push(row);
         }
     }
-    s.images[i] = Rc::new(Image::from_vecvec(new_image));
+    s.images[i] = Image::from_vecvec(new_image);
     Ok(())
 }
 
 pub fn insert_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
-    let image = &*s.images[i];
+    let image = &s.images[i];
     let mut new_image = vec![];
     let lines = &s.saved_lines;
     let lines = &lines[lines.len() - 1][i].vertical;
@@ -1217,7 +1213,7 @@ pub fn insert_vertical_lines(s: &mut SolverState, i: usize) -> Res<()> {
         }
         new_image.push(row);
     }
-    s.images[i] = Rc::new(Image::from_vecvec(new_image));
+    s.images[i] = Image::from_vecvec(new_image);
     Ok(())
 }
 
@@ -1234,7 +1230,7 @@ pub fn restore_grid(s: &mut SolverState) -> Res<()> {
 }
 
 pub fn connect_aligned_pixels_in_shapes(s: &mut SolverState, i: usize) -> Res<()> {
-    let mut new_image = (*s.images[i]).clone();
+    let mut new_image = s.images[i].molten();
     for shape in &s.shapes[i] {
         let bb = shape.bb;
         let shape_as_image = shape.as_image();
@@ -1253,7 +1249,7 @@ pub fn connect_aligned_pixels_in_shapes(s: &mut SolverState, i: usize) -> Res<()
             }
         }
     }
-    s.images[i] = Rc::new(new_image);
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -1514,7 +1510,7 @@ pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
         }
     }
     for image in &mut s.images {
-        let mut new_image = (**image).clone();
+        let mut new_image = image.molten();
         new_image.update(|_x, _y, cell| {
             let c = color_map[cell as usize];
             if c == -1 {
@@ -1523,7 +1519,7 @@ pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
                 c
             }
         });
-        *image = new_image.into();
+        *image = new_image.freeze();
     }
     Ok(())
 }
@@ -1583,11 +1579,11 @@ pub fn discard_small_shapes(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 pub fn erase_shapes(s: &mut SolverState, i: usize) -> Res<()> {
-    let mut image = (*s.images[i]).clone();
+    let mut image = s.images[i].molten();
     for shape in &s.shapes[i] {
         image.erase_shape(shape);
     }
-    s.images[i] = image.into();
+    s.images[i] = image.freeze();
     Ok(())
 }
 
@@ -1664,7 +1660,7 @@ pub fn keep_only_border_lines(s: &mut SolverState, i: usize) -> Res<()> {
 
 pub fn make_image_symmetrical(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &s.images[i];
-    let mut new_image = (**image).clone();
+    let mut new_image = image.molten();
     new_image.try_update(|x, y, mut c| {
         c = tools::blend_if_same_color(c, image[((image.width - 1 - x) as usize, y as usize)])?;
         c = tools::blend_if_same_color(c, image[(x as usize, (image.height - 1 - y) as usize)])?;
@@ -1676,7 +1672,7 @@ pub fn make_image_symmetrical(s: &mut SolverState, i: usize) -> Res<()> {
             )],
         )
     })?;
-    s.images[i] = new_image.into();
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -1685,7 +1681,7 @@ pub fn make_image_rotationally_symmetrical(s: &mut SolverState, i: usize) -> Res
     if image.width != image.height {
         return Err(err!("image not square"));
     }
-    let mut new_image = (**image).clone();
+    let mut new_image = image.molten();
     new_image.try_update(|x, y, mut c| {
         c = tools::blend_if_same_color(c, image[((image.height - 1 - y) as usize, x as usize)])?;
         c = tools::blend_if_same_color(
@@ -1697,7 +1693,7 @@ pub fn make_image_rotationally_symmetrical(s: &mut SolverState, i: usize) -> Res
         )?;
         tools::blend_if_same_color(c, image[(y as usize, (image.width - 1 - x) as usize)])
     })?;
-    s.images[i] = new_image.into();
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -1765,7 +1761,7 @@ pub fn deduplicate_vertically(s: &mut SolverState, i: usize) -> Res<()> {
 
 pub fn make_common_output_image(s: &mut SolverState) -> Res<()> {
     s.output_width_and_height_all()?;
-    let mut new_output_image = (*s.output_images[0]).clone();
+    let mut new_output_image = s.output_images[0].molten();
     new_output_image.update(|x, y, mut c| {
         for i in 1..s.output_images.len() {
             if c != s.output_images[i][(x, y)] {
@@ -1775,7 +1771,7 @@ pub fn make_common_output_image(s: &mut SolverState) -> Res<()> {
         }
         c
     });
-    let new_output_image: Rc<Image> = new_output_image.into();
+    let new_output_image = new_output_image.freeze();
     s.images = s.images.iter().map(|_| new_output_image.clone()).collect();
     Ok(())
 }
@@ -1795,7 +1791,7 @@ pub fn take_all_shapes_from_output(s: &mut SolverState) -> Res<()> {
 }
 
 struct CoverageState {
-    image: Rc<Image>,
+    image: Image,
     shapes: Shapes,
     is_covered: Vec<Vec<bool>>,
     still_uncovered: usize,
@@ -1945,27 +1941,27 @@ pub fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
             let mut shapes = s.shapes[i].clone();
             shapes.sort_by_key(|s| reverse_colors[s.color() as usize]);
             let (w, h) = tools::width_and_height(image);
-            let mut new_image = Image::new(w as usize, h as usize);
+            let mut new_image = MutImage::new(w as usize, h as usize);
             dots_to_lines(&shapes, &is_horizontal, &mut new_image);
-            if !tools::a_matches_b_where_a_is_not_transparent(&new_image, image) {
+            if !tools::a_matches_b_where_a_is_not_transparent(&new_image.freeze(), image) {
                 continue 'order;
             }
         }
         // This order matches all outputs. Draw it.
         for i in 0..s.images.len() {
-            let mut new_image = (*s.images[i]).clone();
+            let mut new_image = s.images[i].molten();
             let mut shapes = s.shapes[i].clone();
             shapes.sort_by_key(|s| reverse_colors[s.color() as usize]);
             dots_to_lines(&shapes, &is_horizontal, &mut new_image);
-            s.images[i] = new_image.into();
+            s.images[i] = new_image.freeze();
         }
         return Ok(());
     }
     Err(err!("could not figure out dots"))
 }
 
-pub fn dots_to_lines(shapes: &Shapes, is_horizontal: &Vec<bool>, image: &mut Image) {
-    let (w, h) = tools::width_and_height(image);
+pub fn dots_to_lines(shapes: &Shapes, is_horizontal: &Vec<bool>, image: &mut MutImage) {
+    let (w, h) = (image.width, image.height);
     for shape in shapes {
         for tools::Pixel { x, y, color } in shape.cells() {
             if is_horizontal[color as usize] {
@@ -1986,18 +1982,18 @@ pub fn delete_noise(s: &mut SolverState, i: usize) -> Res<()> {
     let cs = &s.colorsets[i];
     let counts: Vec<usize> = cs.iter().map(|c| c.pixels.len()).collect();
     let total: usize = counts.iter().sum();
-    let small: Vec<&Rc<Shape>> = cs
+    let small: Vec<&Shape> = cs
         .iter()
         .filter(|shape| (**shape).pixels.len() <= total / 8)
         .collect();
     if small.is_empty() {
         return Err("no change");
     }
-    let mut new_image = (*s.images[i]).clone();
+    let mut new_image = s.images[i].molten();
     for shape in small {
         new_image.erase_shape(shape);
     }
-    s.images[i] = new_image.into();
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -2005,14 +2001,14 @@ pub fn delete_noise(s: &mut SolverState, i: usize) -> Res<()> {
 pub fn make_square_up_left(s: &mut SolverState, i: usize) -> Res<()> {
     let (w, h) = s.width_and_height(i);
     if h < w {
-        let mut new_image = Image::new(w as usize, w as usize);
+        let mut new_image = MutImage::new(w as usize, w as usize);
         new_image.draw_image_at(&s.images[i], Vec2 { x: 0, y: w - h });
-        s.images[i] = new_image.into();
+        s.images[i] = new_image.freeze();
         return Ok(());
     } else if w < h {
-        let mut new_image = Image::new(h as usize, h as usize);
+        let mut new_image = MutImage::new(h as usize, h as usize);
         new_image.draw_image_at(&s.images[i], Vec2 { x: h - w, y: 0 });
-        s.images[i] = new_image.into();
+        s.images[i] = new_image.freeze();
         return Ok(());
     }
     Err("no change")
@@ -2027,7 +2023,7 @@ pub fn shrink_to_output_size_from_top_left(s: &mut SolverState, i: usize) -> Res
     } else if w == ow && h == oh {
         return Err("no change");
     }
-    let mut new_image = Image::new(ow as usize, oh as usize);
+    let mut new_image = MutImage::new(ow as usize, oh as usize);
     new_image.draw_image_at(
         &s.images[i],
         Vec2 {
@@ -2035,7 +2031,7 @@ pub fn shrink_to_output_size_from_top_left(s: &mut SolverState, i: usize) -> Res
             y: oh - h,
         },
     );
-    s.images[i] = new_image.into();
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -2081,7 +2077,7 @@ pub fn zoom_to_content(s: &mut SolverState, i: usize) -> Res<()> {
         bb.width() as usize,
         bb.height() as usize,
     );
-    s.images[i] = new_image.into();
+    s.images[i] = new_image;
     s.shift_shapes(
         i,
         Vec2 {
@@ -2098,10 +2094,10 @@ pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()
         if image.left < extension {
             return Err("no change");
         }
-        let mut new_image = (**image).clone();
+        let mut new_image = image.molten();
         new_image.width += extension;
         new_image.left -= extension;
-        s.images[i] = new_image.into();
+        s.images[i] = new_image.freeze();
         s.shift_shapes(
             i,
             Vec2 {
@@ -2115,10 +2111,10 @@ pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()
         if image.top < extension {
             return Err("no change");
         }
-        let mut new_image = (**image).clone();
+        let mut new_image = image.molten();
         new_image.height += extension;
         new_image.top -= extension;
-        s.images[i] = new_image.into();
+        s.images[i] = new_image.freeze();
         s.shift_shapes(
             i,
             Vec2 {
@@ -2134,7 +2130,7 @@ pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()
 pub fn recolor_image_to_selected_color(s: &mut SolverState, i: usize) -> Res<()> {
     let new_color = s.colors[i][0];
     let mut any_change = false;
-    let mut new_image = (*s.images[i]).clone();
+    let mut new_image = s.images[i].molten();
     for y in 0..new_image.height {
         for x in 0..new_image.width {
             let c = new_image[(x, y)];
@@ -2147,14 +2143,14 @@ pub fn recolor_image_to_selected_color(s: &mut SolverState, i: usize) -> Res<()>
     if !any_change {
         return Err("no change");
     }
-    s.images[i] = new_image.into();
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 pub fn reset_zoom(s: &mut SolverState, i: usize) -> Res<()> {
     if !s.images[i].is_zoomed() {
         return Err("no change");
     }
-    let mut new_image = (*s.images[i]).clone();
+    let mut new_image = s.images[i].molten();
     s.shift_shapes(
         i,
         Vec2 {
@@ -2166,7 +2162,7 @@ pub fn reset_zoom(s: &mut SolverState, i: usize) -> Res<()> {
     new_image.left = 0;
     new_image.width = new_image.full_width;
     new_image.height = new_image.full_height;
-    s.images[i] = new_image.into();
+    s.images[i] = new_image.freeze();
     Ok(())
 }
 
@@ -2233,7 +2229,7 @@ pub fn align_shapes_to_saved_shape_horizontal(s: &mut SolverState, i: usize) -> 
 
 pub fn drop_all_pixels_down(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &mut s.images[i];
-    let mut new_image: Image = (**image).clone();
+    let mut new_image = image.molten();
     let mut columns = vec![0; image.width];
     new_image.clear();
     for y in (0..image.height).rev() {
@@ -2245,6 +2241,6 @@ pub fn drop_all_pixels_down(s: &mut SolverState, i: usize) -> Res<()> {
             }
         }
     }
-    *image = new_image.into();
+    *image = new_image.freeze();
     Ok(())
 }
