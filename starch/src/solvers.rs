@@ -759,6 +759,14 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(inset_by_one),
     ],
     &[
+        // 29
+        step_all!(use_colorsets_as_shapes),
+        step_all!(save_first_shape_use_the_rest),
+        step_each!(erase_shapes),
+        step_each!(align_shapes_to_saved_shape_horizontal),
+        step_each!(draw_shapes),
+    ],
+    &[
         // 71
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_xor),

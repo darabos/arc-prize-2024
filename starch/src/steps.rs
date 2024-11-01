@@ -2147,3 +2147,31 @@ pub fn inset_by_one(s: &mut SolverState, i: usize) -> Res<()> {
     s.shift_shapes(i, Vec2 { x: -1, y: -1 });
     Ok(())
 }
+
+pub fn align_shapes_to_saved_shape_horizontal(s: &mut SolverState, i: usize) -> Res<()> {
+    let shapes = &mut s.shapes[i];
+    must_not_be_empty!(shapes);
+    let saved_shapes: &ShapesPerExample = s.saved_shapes.last().ok_or(err!("no saved shapes"))?;
+    let saved_shape: &Shape = saved_shapes[i].first().ok_or(err!("no saved shape"))?;
+    let mut any_change = false;
+    for shape in shapes {
+        let size_diff = shape.bb.height() - saved_shape.bb.height();
+        if size_diff % 2 != 0 {
+            return Err(err!("size difference not even"));
+        }
+        let destination_y = saved_shape.bb.top - size_diff / 2;
+        if shape.bb.top != destination_y {
+            any_change = true;
+            *shape = shape
+                .move_by(Vec2 {
+                    x: 0,
+                    y: destination_y - shape.bb.top,
+                })
+                .into();
+        }
+    }
+    if !any_change {
+        return Err("no change");
+    }
+    Ok(())
+}
