@@ -210,7 +210,7 @@ impl SolverState {
                 .zip(state.task.train.iter().chain(state.task.test.iter()))
                 .map(|(image, example)| Example {
                     input: example.input.clone(),
-                    output: (**image).full().clone(),
+                    output: (**image).full(),
                 })
                 .collect()
         }
@@ -273,6 +273,10 @@ impl SolverState {
     #[allow(dead_code)]
     pub fn print_images(&self) {
         for image in &self.images {
+            println!(
+                "image {} {} {} {}",
+                image.left, image.top, image.width, image.height
+            );
             image.print();
             println!();
         }
@@ -413,6 +417,21 @@ impl SolverState {
 
     pub fn add_finishing_step(&mut self, f: impl Fn(&mut SolverState) -> Res<()> + 'static) {
         self.finishing_steps.push(Rc::new(Box::new(f)));
+    }
+
+    pub fn shift_shapes(&mut self, i: usize, offset: Vec2) {
+        let fields = [
+            &mut self.shapes,
+            &mut self.shapes_including_background,
+            &mut self.colorsets,
+            &mut self.multicolor_shapes,
+        ];
+        for field in fields {
+            for shape in &mut field[i] {
+                let new_shape = shape.move_by(offset).into();
+                *shape = new_shape;
+            }
+        }
     }
 }
 
@@ -721,7 +740,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(use_previous_color),
         step_each!(recolor_image_to_selected_color),
         step_each!(draw_shapes),
-        step_all!(print_images_step),
+        step_each!(reset_zoom),
         step_all!(remap_colors_per_output),
     ],
     &[

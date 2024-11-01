@@ -1,4 +1,4 @@
-pub use crate::image::{Image, SubImageSpec};
+pub use crate::image::Image;
 pub use crate::shape::{Line, LineSet, Lines, Pixel, Rect, Shape};
 use colored;
 use colored::Colorize;

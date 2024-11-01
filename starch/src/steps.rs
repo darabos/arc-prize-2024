@@ -1,6 +1,6 @@
 use crate::solvers::*;
 use crate::tools;
-use crate::tools::{Image, Res, Shape, SubImageSpec, Vec2, COLORS};
+use crate::tools::{Image, Res, Shape, Vec2, COLORS};
 use std::rc::Rc;
 
 macro_rules! err {
@@ -2003,54 +2003,51 @@ pub fn zoom_to_content(s: &mut SolverState, i: usize) -> Res<()> {
         bb.height() as usize,
     );
     s.images[i] = new_image.into();
+    s.shift_shapes(
+        i,
+        Vec2 {
+            x: -bb.left,
+            y: -bb.top,
+        },
+    );
     Ok(())
 }
 pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &s.images[i];
     if image.width < image.height {
         let extension = image.height - image.width;
-        match &image.subimage {
-            Some(SubImageSpec {
-                top,
-                left,
-                full_image,
-            }) => {
-                if *left < extension {
-                    return Err("no change");
-                }
-                let new_image = full_image.subimage(
-                    left - extension,
-                    *top,
-                    image.width + extension,
-                    image.height,
-                );
-                s.images[i] = new_image.into();
-                Ok(())
-            }
-            None => Err(err!("not zoomed in")),
+        if image.left < extension {
+            return Err("no change");
         }
+        let mut new_image = (**image).clone();
+        new_image.width += extension;
+        new_image.left -= extension;
+        s.images[i] = new_image.into();
+        s.shift_shapes(
+            i,
+            Vec2 {
+                x: extension as i32,
+                y: 0,
+            },
+        );
+        Ok(())
     } else if image.width > image.height {
         let extension = image.width - image.height;
-        match &image.subimage {
-            Some(SubImageSpec {
-                top,
-                left,
-                full_image,
-            }) => {
-                if *top < extension {
-                    return Err("no change");
-                }
-                let new_image = full_image.subimage(
-                    *left,
-                    top - extension,
-                    image.width,
-                    image.height + extension,
-                );
-                s.images[i] = new_image.into();
-                Ok(())
-            }
-            None => Err(err!("not zoomed in")),
+        if image.top < extension {
+            return Err("no change");
         }
+        let mut new_image = (**image).clone();
+        new_image.height += extension;
+        new_image.top -= extension;
+        s.images[i] = new_image.into();
+        s.shift_shapes(
+            i,
+            Vec2 {
+                x: 0,
+                y: extension as i32,
+            },
+        );
+        Ok(())
     } else {
         Err("no change")
     }
@@ -2071,6 +2068,25 @@ pub fn recolor_image_to_selected_color(s: &mut SolverState, i: usize) -> Res<()>
     if !any_change {
         return Err("no change");
     }
+    s.images[i] = new_image.into();
+    Ok(())
+}
+pub fn reset_zoom(s: &mut SolverState, i: usize) -> Res<()> {
+    if !s.images[i].is_zoomed() {
+        return Err("no change");
+    }
+    let mut new_image = (*s.images[i]).clone();
+    s.shift_shapes(
+        i,
+        Vec2 {
+            x: new_image.left as i32,
+            y: new_image.top as i32,
+        },
+    );
+    new_image.top = 0;
+    new_image.left = 0;
+    new_image.width = new_image.full_width;
+    new_image.height = new_image.full_height;
     s.images[i] = new_image.into();
     Ok(())
 }

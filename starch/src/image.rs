@@ -3,19 +3,13 @@ use crate::tools::{write_color, Color, Pixel, Res, Shape, Vec2};
 impl std::ops::Index<(usize, usize)> for Image {
     type Output = Color;
     fn index(&self, (x, y): (usize, usize)) -> &Color {
-        match &self.subimage {
-            Some(subimage) => &subimage.full_image[(subimage.left + x, subimage.top + y)],
-            None => &self.pixels[y * self.width + x],
-        }
+        &self.pixels[self.full_width * (self.top + y) + self.left + x]
     }
 }
 
 impl std::ops::IndexMut<(usize, usize)> for Image {
     fn index_mut<'a>(&mut self, (x, y): (usize, usize)) -> &mut Color {
-        match &mut self.subimage {
-            Some(subimage) => &mut subimage.full_image[(subimage.left + x, subimage.top + y)],
-            None => &mut self.pixels[y * self.width + x],
-        }
+        &mut self.pixels[self.full_width * (self.top + y) + self.left + x]
     }
 }
 impl std::fmt::Display for Image {
@@ -31,47 +25,56 @@ impl std::fmt::Display for Image {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct SubImageSpec {
+pub struct Image {
     pub top: usize,
     pub left: usize,
-    pub full_image: Box<Image>,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct Image {
     pub width: usize,
     pub height: usize,
+    pub full_width: usize,
+    pub full_height: usize,
     pixels: Vec<Color>,
-    pub subimage: Option<SubImageSpec>,
 }
 
 impl Image {
     pub fn new(width: usize, height: usize) -> Image {
         Image {
+            top: 0,
+            left: 0,
             width,
             height,
+            full_width: width,
+            full_height: height,
             pixels: vec![0; width * height],
-            subimage: None,
         }
     }
     pub fn subimage(&self, left: usize, top: usize, width: usize, height: usize) -> Image {
         assert!(left + width <= self.width);
         assert!(top + height <= self.height);
         Image {
+            top: self.top + top,
+            left: self.left + left,
             width,
             height,
-            pixels: vec![],
-            subimage: Some(SubImageSpec {
-                top,
-                left,
-                full_image: Box::new(self.clone()),
-            }),
+            full_width: self.full_width,
+            full_height: self.full_height,
+            pixels: self.pixels.clone(),
         }
     }
-    pub fn full(&self) -> &Image {
-        match &self.subimage {
-            Some(subimage) => &subimage.full_image,
-            None => self,
+    pub fn is_zoomed(&self) -> bool {
+        self.top > 0
+            || self.left > 0
+            || self.width != self.full_width
+            || self.height != self.full_height
+    }
+    pub fn full(&self) -> Image {
+        Image {
+            top: 0,
+            left: 0,
+            width: self.full_width,
+            height: self.full_height,
+            full_width: self.full_width,
+            full_height: self.full_height,
+            pixels: self.pixels.clone(),
         }
     }
     pub fn is_empty(&self) -> bool {
