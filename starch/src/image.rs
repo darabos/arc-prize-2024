@@ -205,6 +205,7 @@ impl Image {
         }
     }
 
+    /// With transparency.
     pub fn draw_image_at(&mut self, other: &Image, pos: Vec2) {
         for y in 0..other.height {
             for x in 0..other.width {
@@ -213,7 +214,9 @@ impl Image {
                 if nx < 0 || ny < 0 || nx >= self.width as i32 || ny >= self.height as i32 {
                     continue;
                 }
-                self[(nx as usize, ny as usize)] = other[(x as usize, y as usize)];
+                if other[(x, y)] != 0 {
+                    self[(nx as usize, ny as usize)] = other[(x, y)];
+                }
             }
         }
     }

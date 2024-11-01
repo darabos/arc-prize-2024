@@ -202,6 +202,16 @@ pub fn save_whole_image(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+pub fn draw_saved_image(s: &mut SolverState) -> Res<()> {
+    let saved_images = s.saved_images.pop().ok_or("no saved images")?;
+    for i in 0..s.images.len() {
+        let mut new_image = (*s.images[i]).clone();
+        new_image.draw_image_at(&*saved_images[i], Vec2::ZERO);
+        s.images[i] = new_image.into();
+    }
+    Ok(())
+}
+
 #[allow(dead_code)]
 pub fn print_shapes_step(s: &mut SolverState) -> Res<()> {
     s.print_shapes();
@@ -212,6 +222,12 @@ pub fn print_shapes_step(s: &mut SolverState) -> Res<()> {
 pub fn print_images_step(s: &mut SolverState) -> Res<()> {
     println!("Images after {:?}", s.steps);
     s.print_images();
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub fn print_colors_step(s: &mut SolverState) -> Res<()> {
+    s.print_colors();
     Ok(())
 }
 
@@ -409,6 +425,44 @@ pub fn tile_image(s: &mut SolverState) -> Res<()> {
         s.images[i] = Rc::new(tools::tile_image(&s.images[i], scale_x, scale_y));
         Ok(())
     })
+}
+
+/// Tiles the image to match the output image.
+pub fn tile_image_add_grid(s: &mut SolverState) -> Res<()> {
+    must_not_be_empty!(&s.output_images);
+    // Find ratio from looking at example outputs.
+    let lines = &s.saved_lines;
+    must_not_be_empty!(lines);
+    let lines = &lines[lines.len() - 1];
+    let num_h = lines[0].horizontal.len() as i32;
+    let num_v = lines[0].vertical.len() as i32;
+    if num_h + num_v == 0 {
+        return Err(err!("no grid"));
+    }
+    if lines.iter().any(|lines| {
+        lines.horizontal.len() != num_h as usize || lines.vertical.len() != num_v as usize
+    }) {
+        return Err(err!("lines have different lengths"));
+    }
+    let (output_width, output_height) = s.output_width_and_height_all()?;
+    let (width, height) = s.width_and_height_all()?;
+    if (output_width - num_v) % width != 0 {
+        return Err(err!("output width must be a multiple of input width"));
+    }
+    if (output_height - num_h) % height != 0 {
+        return Err(err!("output width must be a multiple of input width"));
+    }
+    let scale_x = (output_width - num_v) / width;
+    let scale_y = (output_height - num_h) / height;
+    s.apply(|s: &mut SolverState, i: usize| {
+        s.images[i] = Rc::new(tools::tile_image(
+            &s.images[i],
+            scale_x as usize,
+            scale_y as usize,
+        ));
+        Ok(())
+    })?;
+    restore_grid(s)
 }
 
 pub fn use_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
@@ -1500,6 +1554,7 @@ pub fn use_relative_colors(s: &mut SolverState) -> Res<()> {
         );
     }
     let original_colors = s.colors.clone();
+    s.colors = vec![s.colors[0].clone(); s.colors.len()];
     s.output_images = new_output_images;
     s.init_from_images(new_images);
     s.add_finishing_step(move |s: &mut SolverState| {

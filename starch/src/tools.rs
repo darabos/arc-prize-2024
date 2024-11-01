@@ -670,6 +670,7 @@ pub fn tile_image(image: &Image, repeat_x: usize, repeat_y: usize) -> Image {
 }
 
 /// Given a grid of lines, returns the images that are separated by the lines.
+/// TODO: Just zoom in?
 pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
     let mut images = vec![];
     for y in 0..=lines.horizontal.len() {

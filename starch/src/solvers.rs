@@ -77,7 +77,10 @@ impl SolverState {
             last_move: vec![Vec2::ZERO; images.len()],
             ..Default::default()
         };
+        let all_colors: ColorList = (0..COLORS.len() as i32).collect();
+        state.colors = vec![all_colors; images.len()];
         state.init_from_images(images);
+        state.apply(order_colors_by_shapes).unwrap();
         save_whole_image(&mut state).unwrap();
         state
     }
@@ -124,12 +127,9 @@ impl SolverState {
                 tools::discard_background_shapes_touching_border(image, shapes.clone())
             })
             .collect();
-        let all_colors: ColorList = (0..COLORS.len() as i32).collect();
-        self.colors = self.images.iter().map(|_| all_colors.clone()).collect();
         for s in &mut self.shapes {
             s.sort_by_key(|shape| shape.color());
         }
-        self.apply(order_colors_by_shapes).unwrap();
         self.saved_shapes = vec![self.shapes.clone()];
         self.lines = self
             .images
@@ -775,6 +775,15 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // 31
         step_each!(drop_all_pixels_down),
+    ],
+    &[
+        // 32
+        step_each!(order_shapes_by_bb_size_decreasing),
+        step_each!(order_colors_by_shapes),
+        step_all!(select_grid_cell_most_filled_in),
+        step_all!(tile_image_add_grid),
+        step_each!(recolor_image_to_selected_color),
+        step_all!(draw_saved_image),
     ],
     &[
         // 71
