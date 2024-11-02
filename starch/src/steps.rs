@@ -122,7 +122,7 @@ pub fn save_shapes(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
-pub fn load_earlier_shapes(s: &mut SolverState, offset: usize) -> Res<()> {
+fn load_earlier_shapes(s: &mut SolverState, offset: usize) -> Res<()> {
     if s.saved_shapes.len() < offset + 1 {
         return Err(err!("no saved shapes"));
     }
@@ -197,9 +197,22 @@ pub fn draw_saved_shapes(s: &mut SolverState) -> Res<()> {
     s.apply(draw_shapes)
 }
 
-pub fn save_whole_image(s: &mut SolverState) -> Res<()> {
+pub fn save_image(s: &mut SolverState) -> Res<()> {
     s.saved_images.push(s.images.clone());
     Ok(())
+}
+
+fn load_earlier_image(s: &mut SolverState, offset: usize) -> Res<()> {
+    if s.saved_images.len() < offset + 1 {
+        return Err(err!("no saved images"));
+    }
+    s.images = s.saved_images[s.saved_images.len() - 1 - offset].clone();
+    Ok(())
+}
+
+pub fn save_image_and_load_previous(s: &mut SolverState) -> Res<()> {
+    save_image(s)?;
+    load_earlier_image(s, 1)
 }
 
 pub fn draw_saved_image(s: &mut SolverState) -> Res<()> {
@@ -2288,14 +2301,12 @@ pub fn crop_to_shape(s: &mut SolverState, i: usize) -> Res<()> {
     {
         return Err("no change");
     }
-    *image = image
-        .crop(
-            shape.bb.left,
-            shape.bb.top,
-            shape.bb.width(),
-            shape.bb.height(),
-        )
-        .into();
+    *image = image.crop(
+        shape.bb.left,
+        shape.bb.top,
+        shape.bb.width(),
+        shape.bb.height(),
+    );
     s.shift_shapes(i, -1 * shape.bb.top_left());
     Ok(())
 }
@@ -2304,13 +2315,18 @@ pub fn inset_by_one(s: &mut SolverState, i: usize) -> Res<()> {
     if image.width < 3 || image.height < 3 {
         return Err(err!("image too small"));
     }
-    *image = image
-        .crop(1, 1, image.width as i32 - 2, image.height as i32 - 2)
-        .into();
+    *image = image.crop(1, 1, image.width as i32 - 2, image.height as i32 - 2);
     s.shift_shapes(i, Vec2 { x: -1, y: -1 });
     Ok(())
 }
-
+pub fn crop_to_top_left_quadrant(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &mut s.images[i];
+    if image.width % 2 != 0 || image.height % 2 != 0 {
+        return Err(err!("image not even"));
+    }
+    *image = image.crop(0, 0, image.width as i32 / 2, image.height as i32 / 2);
+    Ok(())
+}
 pub fn align_shapes_to_saved_shape_horizontal(s: &mut SolverState, i: usize) -> Res<()> {
     let shapes = &mut s.shapes[i];
     must_not_be_empty!(shapes);

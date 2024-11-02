@@ -294,11 +294,13 @@ impl Shape {
         for x in 0..image.width {
             for y in 0..image.height {
                 let color = image[(x, y)];
-                cells.push(Pixel {
-                    x: x as i32,
-                    y: y as i32,
-                    color,
-                });
+                if color != 0 {
+                    cells.push(Pixel {
+                        x: x as i32,
+                        y: y as i32,
+                        color,
+                    });
+                }
             }
         }
         Shape::new(cells)

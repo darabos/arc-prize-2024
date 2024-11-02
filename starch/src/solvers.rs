@@ -81,7 +81,7 @@ impl SolverState {
         state.colors = vec![all_colors; images.len()];
         state.init_from_images(images);
         state.apply(order_colors_by_shapes).unwrap();
-        save_whole_image(&mut state).unwrap();
+        save_image(&mut state).unwrap();
         state
     }
 
@@ -556,10 +556,10 @@ pub const ALL_STEPS: &[SolverStep] = &[
 pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // 0
-        step_each!(use_image_as_shape),
         step_all!(scale_up_image),
-        step_each!(tile_shapes_after_scale_up),
-        step_each!(draw_shape_where_non_empty),
+        step_all!(save_image_and_load_previous),
+        step_all!(tile_image),
+        step_each!(boolean_with_saved_image_and),
     ],
     &[
         // 1
@@ -818,6 +818,20 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         // 36
         step_all!(use_colorsets_as_shapes),
         step_each!(connect_aligned_pixels_in_shapes_8),
+    ],
+    &[
+        // 37
+        // counting
+    ],
+    &[
+        // 38
+        step_each!(use_image_as_shape),
+        step_each!(crop_to_shape),
+        step_each!(crop_to_top_left_quadrant),
+    ],
+    &[
+        // Bad solution for 4c4377d9, 6d0aefbc, 963e52fc.
+        step_all!(tile_image),
     ],
     &[
         // 71
