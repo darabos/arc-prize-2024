@@ -839,7 +839,7 @@ fn move_saved_shape_to_cover_current_shape_max_in_directions(
         for &direction in directions {
             moved.move_to_mut(saved_shape.bb.top_left() + distance * direction);
             if moved.covers(current_shape) {
-                s.shapes[i] = vec![moved.into()];
+                s.shapes[i] = vec![moved];
                 s.last_move[i] = distance * direction;
                 return Ok(());
             }
@@ -848,6 +848,85 @@ fn move_saved_shape_to_cover_current_shape_max_in_directions(
     Err(err!("no move found"))
 }
 
+pub fn move_current_shape_to_cover_saved_shape_min_8(s: &mut SolverState, i: usize) -> Res<()> {
+    move_current_shape_to_cover_saved_shape_min_in_directions(s, i, &Vec2::DIRECTIONS8)
+}
+pub fn move_current_shape_to_cover_saved_shape_min_4(s: &mut SolverState, i: usize) -> Res<()> {
+    move_current_shape_to_cover_saved_shape_min_in_directions(s, i, &Vec2::DIRECTIONS4)
+}
+pub fn move_current_shape_to_cover_saved_shape_min_diagonally(
+    s: &mut SolverState,
+    i: usize,
+) -> Res<()> {
+    move_current_shape_to_cover_saved_shape_min_in_directions(s, i, &Vec2::DIAGONALS)
+}
+
+fn move_current_shape_to_cover_saved_shape_min_in_directions(
+    s: &mut SolverState,
+    i: usize,
+    directions: &[Vec2],
+) -> Res<()> {
+    let saved_shapes = &s.saved_shapes.last().ok_or(err!("no saved shapes"))?[i];
+    let saved_shape = saved_shapes.get(0).ok_or(err!("no saved shape"))?;
+    if s.shapes[i].is_empty() {
+        return Err(err!("no shapes"));
+    }
+    'shape: for shape in &mut s.shapes[i] {
+        let mut moved: Shape = shape.clone();
+        for distance in 0..10 {
+            for &direction in directions {
+                moved.move_to_mut(shape.bb.top_left() + distance * direction);
+                if moved.covers(saved_shape) {
+                    *shape = moved;
+                    s.last_move[i] = distance * direction;
+                    continue 'shape;
+                }
+            }
+        }
+        return Err(err!("no move found"));
+    }
+    Ok(())
+}
+
+pub fn move_current_shape_to_be_inside_saved_shape_min_8(s: &mut SolverState, i: usize) -> Res<()> {
+    move_current_shape_to_be_inside_saved_shape_min_in_directions(s, i, &Vec2::DIRECTIONS8)
+}
+pub fn move_current_shape_to_be_inside_saved_shape_min_4(s: &mut SolverState, i: usize) -> Res<()> {
+    move_current_shape_to_be_inside_saved_shape_min_in_directions(s, i, &Vec2::DIRECTIONS4)
+}
+pub fn move_current_shape_to_be_inside_saved_shape_min_diagonally(
+    s: &mut SolverState,
+    i: usize,
+) -> Res<()> {
+    move_current_shape_to_be_inside_saved_shape_min_in_directions(s, i, &Vec2::DIAGONALS)
+}
+
+fn move_current_shape_to_be_inside_saved_shape_min_in_directions(
+    s: &mut SolverState,
+    i: usize,
+    directions: &[Vec2],
+) -> Res<()> {
+    let saved_shapes = &s.saved_shapes.last().ok_or(err!("no saved shapes"))?[i];
+    let saved_shape = saved_shapes.get(0).ok_or(err!("no saved shape"))?;
+    if s.shapes[i].is_empty() {
+        return Err(err!("no shapes"));
+    }
+    'shape: for shape in &mut s.shapes[i] {
+        let mut moved: Shape = shape.clone();
+        for distance in 0..10 {
+            for &direction in directions {
+                moved.move_to_mut(shape.bb.top_left() + distance * direction);
+                if saved_shape.covers(&moved) {
+                    *shape = moved;
+                    s.last_move[i] = distance * direction;
+                    continue 'shape;
+                }
+            }
+        }
+        return Err(err!("no move found"));
+    }
+    Ok(())
+}
 /// Draws the shape in its current location, then moves it again and draws it again,
 /// until it leaves the image.
 pub fn repeat_last_move_and_draw(s: &mut SolverState, i: usize) -> Res<()> {

@@ -801,6 +801,14 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(repeat_last_move_and_draw),
     ],
     &[
+        // 34
+        step_each!(order_shapes_by_weight_decreasing),
+        step_all!(save_first_shape_use_the_rest),
+        step_each!(move_current_shape_to_be_inside_saved_shape_min_4),
+        step_each!(draw_shapes),
+        step_all!(print_images_step),
+    ],
+    &[
         // 71
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_xor),
