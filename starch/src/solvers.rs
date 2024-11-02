@@ -809,6 +809,12 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(print_images_step),
     ],
     &[
+        // 35
+        step_each!(order_shapes_by_bb_size_decreasing),
+        step_all!(take_first_shape_save_the_rest),
+        step_each!(crop_to_shape),
+    ],
+    &[
         // 71
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_xor),
