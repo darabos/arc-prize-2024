@@ -243,8 +243,12 @@ pub fn substates_for_each_shape(s: &mut SolverState) -> Res<()> {
     if s.is_substate {
         return Err(err!("already split into substates"));
     }
-    if s.shapes.iter().any(|shapes| shapes.len() > 10) {
+    let shape_count: usize = s.shapes.iter().map(|shapes| shapes.len()).sum();
+    if shape_count > 10 {
         return Err(err!("too many shapes"));
+    }
+    if shape_count == 0 {
+        return Err(err!("no shapes"));
     }
     s.substates = Some(
         s.substate_per_image()
@@ -805,13 +809,34 @@ pub fn move_shapes_per_output(s: &mut SolverState) -> Res<()> {
 
 /// Moves the saved shape in one of the 8 directions as far as possible while still covering the
 /// current shape. Works with a single saved shape and current shape.
-pub fn move_saved_shape_to_cover_current_shape_max(s: &mut SolverState, i: usize) -> Res<()> {
+pub fn move_saved_shape_to_cover_current_shape_max_8(s: &mut SolverState, i: usize) -> Res<()> {
+    move_saved_shape_to_cover_current_shape_max_in_directions(s, i, &Vec2::DIRECTIONS8)
+}
+/// Moves the saved shape in one of the 4 directions as far as possible while still covering the
+/// current shape. Works with a single saved shape and current shape.
+pub fn move_saved_shape_to_cover_current_shape_max_4(s: &mut SolverState, i: usize) -> Res<()> {
+    move_saved_shape_to_cover_current_shape_max_in_directions(s, i, &Vec2::DIRECTIONS4)
+}
+/// Moves the saved shape diagonally as far as possible while still covering the
+/// current shape. Works with a single saved shape and current shape.
+pub fn move_saved_shape_to_cover_current_shape_max_diagonally(
+    s: &mut SolverState,
+    i: usize,
+) -> Res<()> {
+    move_saved_shape_to_cover_current_shape_max_in_directions(s, i, &Vec2::DIAGONALS)
+}
+
+fn move_saved_shape_to_cover_current_shape_max_in_directions(
+    s: &mut SolverState,
+    i: usize,
+    directions: &[Vec2],
+) -> Res<()> {
     let saved_shapes = &s.saved_shapes.last().ok_or(err!("no saved shapes"))?[i];
     let current_shape = &s.shapes[i].get(0).ok_or(err!("no current shape"))?;
     let saved_shape = saved_shapes.get(0).ok_or(err!("no saved shape"))?;
     let mut moved: Shape = saved_shape.clone();
     for distance in (1..10).rev() {
-        for direction in Vec2::DIRECTIONS8 {
+        for &direction in directions {
             moved.move_to_mut(saved_shape.bb.top_left() + distance * direction);
             if moved.covers(current_shape) {
                 s.shapes[i] = vec![moved.into()];
@@ -2038,13 +2063,11 @@ pub fn shrink_to_output_size_from_top_left(s: &mut SolverState, i: usize) -> Res
 pub fn recolor_shapes_to_selected_color(s: &mut SolverState, i: usize) -> Res<()> {
     let new_color = s.colors[i][0];
     let mut any_change = false;
-    for shapes in &mut s.shapes {
-        for shape in shapes {
-            if shape.color() != new_color {
-                any_change = true;
-            }
-            *shape = shape.recolor(new_color).into();
+    for shape in &mut s.shapes[i] {
+        if shape.color() != new_color {
+            any_change = true;
         }
+        *shape = shape.recolor(new_color);
     }
     if !any_change {
         return Err("no change");
@@ -2242,5 +2265,28 @@ pub fn drop_all_pixels_down(s: &mut SolverState, i: usize) -> Res<()> {
         }
     }
     *image = new_image.freeze();
+    Ok(())
+}
+
+pub fn order_colors_by_frequency_across_images_ascending(s: &mut SolverState) -> Res<()> {
+    let mut color_counts = vec![vec![0; COLORS.len()]; s.images.len()];
+    s.print_images();
+    for i in 0..s.images.len() {
+        tools::count_colors_in_image(&s.images[i], &mut color_counts[i]);
+    }
+    let color_counts_total: Vec<usize> = (0..COLORS.len())
+        .map(|c| color_counts.iter().map(|counts| counts[c]).sum())
+        .collect();
+    for i in 0..s.images.len() {
+        let mut color_order: Vec<i32> = (0..COLORS.len() as i32).collect();
+        color_order.sort_by_key(|&c| {
+            if c == 0 || color_counts[i][c as usize] == 0 {
+                99
+            } else {
+                color_counts_total[c as usize]
+            }
+        });
+        s.colors[i] = color_order;
+    }
     Ok(())
 }

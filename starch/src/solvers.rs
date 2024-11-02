@@ -530,7 +530,9 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(keep_only_border_lines),
     step_each!(make_image_rotationally_symmetrical),
     step_each!(make_image_symmetrical),
-    step_each!(move_saved_shape_to_cover_current_shape_max),
+    step_each!(move_saved_shape_to_cover_current_shape_max_4),
+    step_each!(move_saved_shape_to_cover_current_shape_max_8),
+    step_each!(move_saved_shape_to_cover_current_shape_max_diagonally),
     step_each!(move_shapes_to_touch_saved_shape),
     step_each!(order_colors_by_shapes),
     step_each!(order_shapes_by_color),
@@ -588,7 +590,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(save_first_shape_use_the_rest),
         step_all!(substates_for_each_shape),
         step_each!(recolor_saved_shapes_to_current_shape),
-        step_each!(move_saved_shape_to_cover_current_shape_max),
+        step_each!(move_saved_shape_to_cover_current_shape_max_8),
         step_each!(repeat_last_move_and_draw),
     ],
     &[
@@ -784,6 +786,19 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(tile_image_add_grid),
         step_each!(recolor_image_to_selected_color),
         step_all!(draw_saved_image),
+    ],
+    &[
+        // 33
+        step_all!(order_colors_by_frequency_across_images_ascending),
+        step_all!(use_multicolor_shapes),
+        step_each!(recolor_shapes_to_selected_color),
+        step_all!(save_shapes_and_load_previous),
+        step_each!(use_next_color),
+        step_each!(filter_shapes_by_color),
+        step_each!(atomize_shapes),
+        step_all!(substates_for_each_shape),
+        step_each!(move_saved_shape_to_cover_current_shape_max_diagonally),
+        step_each!(repeat_last_move_and_draw),
     ],
     &[
         // 71

@@ -75,6 +75,12 @@ impl Vec2 {
         Vec2::DOWN_LEFT,
         Vec2::DOWN_RIGHT,
     ];
+    pub const DIAGONALS: [Vec2; 4] = [
+        Vec2::UP_LEFT,
+        Vec2::UP_RIGHT,
+        Vec2::DOWN_LEFT,
+        Vec2::DOWN_RIGHT,
+    ];
 }
 pub fn write_color<W: std::fmt::Write>(f: &mut W, color: i32) {
     if color < 0 {
