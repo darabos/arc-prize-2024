@@ -514,7 +514,7 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(boolean_with_saved_image_and),
     step_each!(boolean_with_saved_image_or),
     step_each!(boolean_with_saved_image_xor),
-    step_each!(connect_aligned_pixels_in_shapes),
+    step_each!(connect_aligned_pixels_in_shapes_4),
     step_each!(cover_image_with_shapes),
     step_each!(deduplicate_horizontally),
     step_each!(deduplicate_vertically),
@@ -617,7 +617,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         // 8
         step_all!(remove_grid),
         step_all!(use_colorsets_as_shapes),
-        step_each!(connect_aligned_pixels_in_shapes),
+        step_each!(connect_aligned_pixels_in_shapes_4),
         step_all!(restore_grid),
     ],
     &[
@@ -815,6 +815,11 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(crop_to_shape),
     ],
     &[
+        // 36
+        step_all!(use_colorsets_as_shapes),
+        step_each!(connect_aligned_pixels_in_shapes_8),
+    ],
+    &[
         // 71
         step_all!(split_into_two_images),
         step_each!(boolean_with_saved_image_xor),
@@ -823,7 +828,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     &[
         // ded97339
         step_all!(use_colorsets_as_shapes),
-        step_each!(connect_aligned_pixels_in_shapes),
+        step_each!(connect_aligned_pixels_in_shapes_4),
     ],
     &[
         // 1cf80156

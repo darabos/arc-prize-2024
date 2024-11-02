@@ -1333,13 +1333,23 @@ pub fn restore_grid(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
-pub fn connect_aligned_pixels_in_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+pub fn connect_aligned_pixels_in_shapes_4(s: &mut SolverState, i: usize) -> Res<()> {
+    connect_aligned_pixels_in_shapes_in_directions(s, i, &Vec2::DIRECTIONS4)
+}
+pub fn connect_aligned_pixels_in_shapes_8(s: &mut SolverState, i: usize) -> Res<()> {
+    connect_aligned_pixels_in_shapes_in_directions(s, i, &Vec2::DIRECTIONS8)
+}
+fn connect_aligned_pixels_in_shapes_in_directions(
+    s: &mut SolverState,
+    i: usize,
+    directions: &[Vec2],
+) -> Res<()> {
     let mut new_image = s.images[i].molten();
     for shape in &s.shapes[i] {
         let bb = shape.bb;
         let shape_as_image = shape.as_image();
         for cell in shape.cells() {
-            for dir in Vec2::DIRECTIONS4 {
+            for &dir in directions {
                 for distance in 1..10 {
                     let image_pos = cell + distance * dir;
                     let shape_pos = image_pos - bb.top_left();
