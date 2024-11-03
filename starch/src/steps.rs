@@ -1,7 +1,6 @@
 use crate::solvers::*;
 use crate::tools;
-use crate::tools::{Image, MutImage, Res, Shape, Vec2, COLORS};
-use std::rc::Rc;
+use crate::tools::{Color, Image, MutImage, Res, Shape, Vec2, COLORS};
 
 macro_rules! err {
     ($msg:expr) => {
@@ -36,16 +35,16 @@ pub fn order_colors_by_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let mut already_used = vec![false; COLORS.len()];
     let mut next_color = 0;
     for shape in shapes.iter() {
-        if !already_used[shape.color() as usize] {
+        if !already_used[shape.color()] {
             s.colors[i][next_color] = shape.color();
-            already_used[shape.color() as usize] = true;
+            already_used[shape.color()] = true;
             next_color += 1;
         }
     }
     // Unused colors at the end.
     for color in 0..COLORS.len() {
         if !already_used[color] {
-            s.colors[i][next_color] = color as i32;
+            s.colors[i][next_color] = color;
             next_color += 1;
         }
     }
@@ -152,7 +151,7 @@ pub fn save_first_shape_use_the_rest(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
-pub fn take_first_shape_save_the_rest(s: &mut SolverState) -> Res<()> {
+pub fn use_first_shape_save_the_rest(s: &mut SolverState) -> Res<()> {
     if s.shapes.iter().any(|shapes| shapes.len() < 2) {
         return Err(err!("not enough shapes"));
     }
@@ -479,13 +478,13 @@ pub fn tile_image_add_grid(s: &mut SolverState) -> Res<()> {
 }
 
 pub fn use_image_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
-    s.shapes[i] = vec![Shape::from_image(&s.images[i])];
+    s.shapes[i] = vec![Shape::from_image(&s.images[i])?];
     Ok(())
 }
 
 pub fn use_image_without_background_as_shape(s: &mut SolverState, i: usize) -> Res<()> {
-    let shape = Shape::from_image(&s.images[i]).discard_color(0)?;
-    s.shapes[i] = vec![shape.into()];
+    let shape = Shape::from_image(&s.images[i])?.discard_color(0)?;
+    s.shapes[i] = vec![shape];
     Ok(())
 }
 
@@ -530,7 +529,7 @@ pub fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
     must_not_be_empty!(&s.output_images);
     // Get colors from first output_image.
     let shapes = &s.shapes[0];
-    let colors: Res<Vec<i32>> = shapes
+    let colors: Res<Vec<Color>> = shapes
         .iter()
         .map(|shape| s.output_images[0].get(shape.cell0().x, shape.cell0().y))
         .collect();
@@ -584,9 +583,10 @@ pub fn draw_shapes(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 pub fn order_shapes_by_color(s: &mut SolverState, i: usize) -> Res<()> {
-    s.shapes[i].sort_by_key(|shape| shape.color());
+    let reverse_colors = tools::reverse_colors(&s.colors[i]);
+    s.shapes[i].sort_by_key(|shape| reverse_colors[shape.color()]);
     if i < s.output_shapes.len() {
-        s.output_shapes[i].sort_by_key(|shape| shape.color());
+        s.output_shapes[i].sort_by_key(|shape| reverse_colors[shape.color()]);
     }
     Ok(())
 }
@@ -1027,7 +1027,7 @@ pub fn boolean_with_saved_image_xor(s: &mut SolverState, i: usize) -> Res<()> {
 pub fn boolean_with_saved_image_function(
     s: &mut SolverState,
     i: usize,
-    func: fn(i32, i32) -> i32,
+    func: fn(Color, Color) -> Color,
 ) -> Res<()> {
     let saved_image = &s.saved_images.last().ok_or(err!("no saved images"))?[i];
     let (width, height) = s.width_and_height(i);
@@ -1615,7 +1615,7 @@ pub fn follow_shape_sequence_per_output(s: &mut SolverState) -> Res<()> {
 }
 
 pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
-    let mut color_map: Vec<i32> = vec![-1; COLORS.len()];
+    let mut color_map: Vec<Color> = vec![tools::UNSET_COLOR; COLORS.len()];
     for i in 0..s.output_images.len() {
         let input = &s.images[i];
         let output = &s.output_images[i];
@@ -1628,9 +1628,9 @@ pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
             for x in 0..w {
                 let input_color = input[(x as usize, y as usize)];
                 let output_color = output[(x as usize, y as usize)];
-                if color_map[input_color as usize] == -1 {
-                    color_map[input_color as usize] = output_color;
-                } else if color_map[input_color as usize] != output_color {
+                if color_map[input_color] == tools::UNSET_COLOR {
+                    color_map[input_color] = output_color;
+                } else if color_map[input_color] != output_color {
                     return Err(err!("no consistent mapping"));
                 }
             }
@@ -1640,7 +1640,7 @@ pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
         let mut new_image = image.molten();
         new_image.update(|_x, _y, cell| {
             let c = color_map[cell as usize];
-            if c == -1 {
+            if c == tools::UNSET_COLOR {
                 cell
             } else {
                 c
@@ -2001,7 +2001,7 @@ pub fn order_colors_and_shapes_by_output_frequency_increasing(s: &mut SolverStat
     for image in &s.output_images {
         tools::count_colors_in_image(image, &mut color_counts);
     }
-    let mut color_order: Vec<i32> = (0..COLORS.len() as i32).collect();
+    let mut color_order: Vec<Color> = (0..COLORS.len()).collect();
     color_order.sort_by_key(|&c| color_counts[c as usize]);
     for i in 0..s.images.len() {
         s.colors[i] = color_order.clone();
@@ -2375,7 +2375,6 @@ pub fn drop_all_pixels_down(s: &mut SolverState, i: usize) -> Res<()> {
 
 pub fn order_colors_by_frequency_across_images_ascending(s: &mut SolverState) -> Res<()> {
     let mut color_counts = vec![vec![0; COLORS.len()]; s.images.len()];
-    s.print_images();
     for i in 0..s.images.len() {
         tools::count_colors_in_image(&s.images[i], &mut color_counts[i]);
     }
@@ -2383,15 +2382,57 @@ pub fn order_colors_by_frequency_across_images_ascending(s: &mut SolverState) ->
         .map(|c| color_counts.iter().map(|counts| counts[c]).sum())
         .collect();
     for i in 0..s.images.len() {
-        let mut color_order: Vec<i32> = (0..COLORS.len() as i32).collect();
+        let mut color_order: Vec<Color> = (0..COLORS.len()).collect();
         color_order.sort_by_key(|&c| {
-            if c == 0 || color_counts[i][c as usize] == 0 {
+            if c == 0 || color_counts[i][c] == 0 {
                 99
             } else {
-                color_counts_total[c as usize]
+                color_counts_total[c]
             }
         });
         s.colors[i] = color_order;
+    }
+    Ok(())
+}
+
+pub fn order_colors_by_frequency_across_images_descending(s: &mut SolverState) -> Res<()> {
+    let mut color_counts = vec![vec![0; COLORS.len()]; s.images.len()];
+    for i in 0..s.images.len() {
+        tools::count_colors_in_image(&s.images[i], &mut color_counts[i]);
+    }
+    let color_counts_total: Vec<usize> = (0..COLORS.len())
+        .map(|c| color_counts.iter().map(|counts| counts[c]).sum())
+        .collect();
+    for i in 0..s.images.len() {
+        let mut color_order: Vec<Color> = (0..COLORS.len()).collect();
+        color_order.sort_by_key(|&c| {
+            if c == 0 || color_counts[i][c] == 0 {
+                0 as i32
+            } else {
+                -(color_counts_total[c] as i32)
+            }
+        });
+        s.colors[i] = color_order;
+    }
+    Ok(())
+}
+
+pub fn recolor_shapes_to_nearest_saved_shape(s: &mut SolverState, i: usize) -> Res<()> {
+    // Using shape.find_nearest_shape_index.
+    let shapes = &mut s.shapes[i];
+    let saved_shapes = &s.saved_shapes.last().ok_or(err!("no saved shapes"))?[i];
+    must_not_be_empty!(saved_shapes);
+    let mut any_change = false;
+    for shape in shapes {
+        let nearest_index = shape.find_nearest_shape_index(saved_shapes);
+        let new_color = saved_shapes[nearest_index].color();
+        if shape.color() != new_color {
+            any_change = true;
+            *shape = shape.recolor(new_color);
+        }
+    }
+    if !any_change {
+        return Err("no change");
     }
     Ok(())
 }

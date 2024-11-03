@@ -18,7 +18,7 @@ pub struct Shape {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Line {
     pub pos: i32,
-    pub color: i32,
+    pub color: Color,
     pub width: usize,
 }
 pub type Lines = Vec<Line>;
@@ -128,7 +128,7 @@ impl Shape {
     }
 
     #[must_use]
-    pub fn color_at(&self, x: i32, y: i32) -> Option<i32> {
+    pub fn color_at(&self, x: i32, y: i32) -> Option<Color> {
         for Pixel {
             x: px,
             y: py,
@@ -206,7 +206,7 @@ impl Shape {
     }
 
     #[must_use]
-    pub fn recolor(&self, color: i32) -> Shape {
+    pub fn recolor(&self, color: Color) -> Shape {
         Shape::new(
             self.cells()
                 .map(|cell| Pixel {
@@ -218,7 +218,7 @@ impl Shape {
         )
     }
     #[must_use]
-    pub fn color(&self) -> i32 {
+    pub fn color(&self) -> usize {
         self.pixels[0].color
     }
     #[must_use]
@@ -280,7 +280,7 @@ impl Shape {
     }
 
     #[must_use]
-    pub fn discard_color(&self, color: i32) -> Res<Shape> {
+    pub fn discard_color(&self, color: Color) -> Res<Shape> {
         let remaining: Vec<Pixel> = self.cells().filter(|cell| cell.color != color).collect();
         if remaining.is_empty() {
             return Err("nothing left after discarding color");
@@ -289,7 +289,7 @@ impl Shape {
     }
 
     #[must_use]
-    pub fn from_image(image: &Image) -> Shape {
+    pub fn from_image(image: &Image) -> Res<Shape> {
         let mut cells = vec![];
         for x in 0..image.width {
             for y in 0..image.height {
@@ -303,7 +303,10 @@ impl Shape {
                 }
             }
         }
-        Shape::new(cells)
+        if cells.is_empty() {
+            return Err("empty");
+        }
+        Ok(Shape::new(cells))
     }
 
     #[must_use]
@@ -322,13 +325,13 @@ impl Shape {
         println!("{}", self.as_image());
     }
 
-    pub fn use_relative_colors(&mut self, reverse_colors: &[i32]) -> Shape {
+    pub fn use_relative_colors(&mut self, reverse_colors: &[usize]) -> Shape {
         Shape::new(
             self.cells()
                 .map(|cell| Pixel {
                     x: cell.x,
                     y: cell.y,
-                    color: reverse_colors[cell.color as usize],
+                    color: reverse_colors[cell.color],
                 })
                 .collect(),
         )
@@ -353,6 +356,24 @@ impl Shape {
             }
         }
         None
+    }
+
+    /// Fast bounding box-based distance.
+    #[must_use]
+    pub fn distance_to(&self, other: &Shape) -> i32 {
+        let dx = (self.bb.left + self.bb.right - other.bb.left - other.bb.right).abs();
+        let dy = (self.bb.top + self.bb.bottom - other.bb.top - other.bb.bottom).abs();
+        dx + dy
+    }
+
+    #[must_use]
+    pub fn find_nearest_shape_index(&self, shapes: &[Shape]) -> usize {
+        shapes
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, shape)| self.distance_to(shape))
+            .unwrap()
+            .0
     }
 
     #[must_use]

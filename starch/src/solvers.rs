@@ -1,6 +1,6 @@
 use crate::steps::*;
 use crate::tools;
-use crate::tools::{Example, Image, Res, Shape, Task, Vec2, COLORS};
+use crate::tools::{Color, Example, Image, Res, Shape, Task, Vec2, COLORS};
 use std::rc::Rc;
 
 macro_rules! err {
@@ -12,7 +12,7 @@ macro_rules! err {
 pub type Shapes = Vec<Shape>;
 pub type ShapesPerExample = Vec<Shapes>;
 pub type ImagePerExample = Vec<Image>;
-pub type ColorList = Vec<i32>;
+pub type ColorList = Vec<Color>;
 pub type ColorListPerExample = Vec<ColorList>;
 pub type LinesPerExample = Vec<Rc<tools::LineSet>>;
 pub type NumberSequence = Vec<i32>;
@@ -77,7 +77,7 @@ impl SolverState {
             last_move: vec![Vec2::ZERO; images.len()],
             ..Default::default()
         };
-        let all_colors: ColorList = (0..COLORS.len() as i32).collect();
+        let all_colors: ColorList = (0..COLORS.len()).collect();
         state.colors = vec![all_colors; images.len()];
         state.init_from_images(images);
         state.apply(order_colors_by_shapes).unwrap();
@@ -756,7 +756,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         // 28
         step_all!(use_colorsets_as_shapes),
         step_each!(order_shapes_by_bb_size_increasing),
-        step_all!(take_first_shape_save_the_rest),
+        step_all!(use_first_shape_save_the_rest),
         step_each!(crop_to_shape),
         step_each!(inset_by_one),
     ],
@@ -806,12 +806,11 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(save_first_shape_use_the_rest),
         step_each!(move_current_shape_to_be_inside_saved_shape_min_4),
         step_each!(draw_shapes),
-        step_all!(print_images_step),
     ],
     &[
         // 35
         step_each!(order_shapes_by_bb_size_decreasing),
-        step_all!(take_first_shape_save_the_rest),
+        step_all!(use_first_shape_save_the_rest),
         step_each!(crop_to_shape),
     ],
     &[
@@ -828,6 +827,16 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(use_image_as_shape),
         step_each!(crop_to_shape),
         step_each!(crop_to_top_left_quadrant),
+    ],
+    &[
+        // 39
+        step_all!(use_colorsets_as_shapes),
+        step_all!(order_colors_by_frequency_across_images_descending),
+        step_each!(order_shapes_by_color),
+        step_all!(use_first_shape_save_the_rest),
+        step_each!(atomize_shapes),
+        step_each!(recolor_shapes_to_nearest_saved_shape),
+        step_each!(draw_shapes),
     ],
     &[
         // Bad solution for 4c4377d9, 6d0aefbc, 963e52fc.
@@ -856,7 +865,6 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(boolean_with_saved_image_nor),
         step_each!(discard_shapes_touching_border),
         step_each!(make_image_symmetrical),
-        step_each!(order_shapes_by_color),
         step_each!(order_shapes_from_left_to_right),
         step_each!(order_shapes_by_bb_size_decreasing),
         step_each!(pick_bottom_right_shape),

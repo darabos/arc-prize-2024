@@ -11,7 +11,7 @@ mod tools;
 use tools::{Example, Image, MutImage, Task};
 
 pub fn parse_image(image: &serde_json::Value) -> Image {
-    let vecvec: Vec<Vec<i32>> = image
+    let vecvec: Vec<Vec<tools::Color>> = image
         .as_array()
         .expect("Should have been an array")
         .iter()
@@ -19,7 +19,7 @@ pub fn parse_image(image: &serde_json::Value) -> Image {
             row.as_array()
                 .expect("Should have been an array")
                 .iter()
-                .map(|cell| cell.as_i64().expect("Should have been an integer") as i32)
+                .map(|cell| cell.as_i64().expect("Should have been an integer") as usize)
                 .collect()
         })
         .collect();
@@ -169,9 +169,9 @@ fn evaluate_automatic_solver() {
 fn evaluate_manual_solvers() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
-    let mut expected_correct: Vec<&str> = "007bbfb7 00d62c1b 025d127b 045e512c 0520fde7 05269061 05f2a901 06df4c85 08ed6ac7 09629e4f 0962bcdd 0a938d79 0b148d64 0ca9ddb6 0d3d703e 0dfd9992 0e206a2e 10fcaaa3 11852cab 1190e5a7 137eaa0f 150deff5 178fcbfb 1a07d186 1b2d62fb 1b60fb0c 1bfc4729 1c786137 1caeab9d 1cf80156 1e0a9b12 1e32b0e9 1f0c79e5 1f642eb9 1f85a75f 1f876c06 2013d3e2 22168020 22eb0ac0 25ff71a9 29ec7d0e 2dc579da 2dee498d 3428a4f5 39a8645d 4258a5f9 48d8fb45 4c4377d9 6430c8c4 6d0aefbc 8403a5d5 90c28cc7 913fb3ed 963e52fc 99b1bc43 a416b8f3 a5313dff ae4f1146 b1948b0a ba97ae07 be94b721 c3f564a4 c8f0f002 ce4f8723 d364b489 d511f180 d687bc17 dc1df850 ded97339 e9afcf9a ea32f347 f2829549".split(" ").collect();
+    let mut expected_correct: Vec<&str> = "007bbfb7 00d62c1b 025d127b 045e512c 0520fde7 05269061 05f2a901 06df4c85 08ed6ac7 09629e4f 0962bcdd 0a938d79 0b148d64 0ca9ddb6 0d3d703e 0dfd9992 0e206a2e 10fcaaa3 11852cab 1190e5a7 137eaa0f 150deff5 178fcbfb 1a07d186 1b2d62fb 1b60fb0c 1bfc4729 1c786137 1caeab9d 1cf80156 1e0a9b12 1e32b0e9 1f0c79e5 1f642eb9 1f85a75f 1f876c06 2013d3e2 2204b7a8 22168020 22eb0ac0 25ff71a9 29ec7d0e 2dc579da 2dee498d 3428a4f5 39a8645d 4258a5f9 48d8fb45 4c4377d9 6430c8c4 6d0aefbc 8403a5d5 90c28cc7 913fb3ed 963e52fc 99b1bc43 a416b8f3 a5313dff ae4f1146 b1948b0a ba97ae07 be94b721 c3f564a4 c8f0f002 ce4f8723 d364b489 d511f180 d687bc17 dc1df850 ded97339 e9afcf9a ea32f347 f2829549".split(" ").collect();
     let mut correct: Vec<colored::ColoredString> = vec![];
-    // let debug = (39, "4c4377d9");
+    // let debug = (39, "2204b7a8");
     let debug = (-1, "");
     let tasks: Vec<(String, Task)> = if debug.0 < 0 {
         tasks

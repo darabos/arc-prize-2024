@@ -4,7 +4,7 @@ use colored;
 use colored::Colorize;
 use std::rc::Rc;
 
-pub type Color = i32;
+pub type Color = usize;
 
 pub const COLORS: [colored::Color; 12] = [
     colored::Color::Black,
@@ -32,6 +32,7 @@ pub const COLORS: [colored::Color; 12] = [
     colored::Color::White,
     colored::Color::Cyan,
 ];
+pub const UNSET_COLOR: Color = 13;
 
 #[derive(Clone, Default)]
 pub struct Task {
@@ -82,7 +83,7 @@ impl Vec2 {
         Vec2::DOWN_RIGHT,
     ];
 }
-pub fn write_color<W: std::fmt::Write>(f: &mut W, color: i32) {
+pub fn write_color<W: std::fmt::Write>(f: &mut W, color: Color) {
     if color < 0 {
         write!(f, " ").unwrap();
     } else if color == 0 {
@@ -92,7 +93,7 @@ pub fn write_color<W: std::fmt::Write>(f: &mut W, color: i32) {
     }
 }
 
-pub fn print_colors(colors: &[i32]) {
+pub fn print_colors(colors: &[Color]) {
     let mut buffer = String::new();
     for &color in colors {
         write_color(&mut buffer, color);
@@ -307,7 +308,7 @@ pub fn find_lines_in_image(image: &Image) -> LineSet {
     }
 }
 
-pub fn shape_by_color(shapes: &[Shape], color: i32) -> Option<Shape> {
+pub fn shape_by_color(shapes: &[Shape], color: Color) -> Option<Shape> {
     for shape in shapes {
         if shape.color() == color {
             return Some(shape.clone());
@@ -362,18 +363,22 @@ impl std::ops::Add<Vec2> for Pixel {
     }
 }
 
-pub fn reverse_colors(colors: &[i32]) -> Vec<i32> {
-    let mut reverse_colors = vec![-1; COLORS.len()];
+pub fn reverse_colors(colors: &[Color]) -> Vec<usize> {
+    let mut reverse_colors = vec![0; COLORS.len()];
     for (i, &color) in colors.iter().enumerate() {
-        reverse_colors[color as usize] = i as i32;
+        reverse_colors[color as usize] = i;
     }
     reverse_colors
 }
 
-pub fn map_colors_in_image(image: &Image, colors_before: &[i32], colors_after: &[i32]) -> Image {
+pub fn map_colors_in_image(
+    image: &Image,
+    colors_before: &[Color],
+    colors_after: &[Color],
+) -> Image {
     let reversed_before = reverse_colors(colors_before);
     let mut new_image = image.molten();
-    new_image.update(|_x, _y, color| colors_after[reversed_before[color as usize] as usize]);
+    new_image.update(|_x, _y, color| colors_after[reversed_before[color]]);
     new_image.freeze()
 }
 
@@ -505,7 +510,7 @@ pub fn get_pattern_in_rect(
     let mut cells = vec![];
     for dx in min_dx..=max_dx {
         for dy in min_dy..=max_dy {
-            let mut agreement = -1;
+            let mut agreement = UNSET_COLOR;
             'images: for i in 0..images.len() {
                 let image = &images[i];
                 for dot in dots[i].cells() {
@@ -519,16 +524,16 @@ pub fn get_pattern_in_rect(
                         continue;
                     }
                     if let Ok(color) = image.get(nx, ny) {
-                        if agreement == -1 {
+                        if agreement == UNSET_COLOR {
                             agreement = color;
                         } else if agreement != color {
-                            agreement = -1;
+                            agreement = UNSET_COLOR;
                             break 'images;
                         }
                     }
                 }
             }
-            if agreement > 0 {
+            if agreement != UNSET_COLOR && agreement != 0 {
                 cells.push(Pixel {
                     x: dx,
                     y: dy,
@@ -588,7 +593,7 @@ pub fn find_pattern_vertically(images: &[Image], dots: &[&Shape]) -> Res<Shape> 
 pub fn draw_shape_with_relative_colors_at(
     image: &mut MutImage,
     shape: &Shape,
-    colors: &[i32],
+    colors: &[Color],
     pos: &Vec2,
 ) {
     for Pixel { x, y, color } in shape.cells() {
@@ -597,7 +602,7 @@ pub fn draw_shape_with_relative_colors_at(
         if nx < 0 || ny < 0 || nx >= image.width as i32 || ny >= image.height as i32 {
             continue;
         }
-        image[(nx as usize, ny as usize)] = colors[color as usize];
+        image[(nx as usize, ny as usize)] = colors[color];
     }
 }
 
@@ -607,7 +612,7 @@ pub fn count_colors_in_image(image: &Image, counts: &mut Vec<usize>) {
     }
 }
 
-pub fn get_used_colors(images: &[Image]) -> Vec<i32> {
+pub fn get_used_colors(images: &[Image]) -> Vec<Color> {
     let mut counts = vec![0; COLORS.len()];
     for image in images {
         count_colors_in_image(image, &mut counts);
@@ -615,13 +620,13 @@ pub fn get_used_colors(images: &[Image]) -> Vec<i32> {
     let mut used_colors = vec![];
     for (i, &count) in counts.iter().enumerate() {
         if count > 0 && i != 0 {
-            used_colors.push(i as i32);
+            used_colors.push(i);
         }
     }
     used_colors
 }
 
-pub fn add_remaining_colors(colors: &[i32]) -> Vec<i32> {
+pub fn add_remaining_colors(colors: &[Color]) -> Vec<Color> {
     let mut is_used = vec![false; COLORS.len()];
     for &color in colors {
         is_used[color as usize] = true;
@@ -630,7 +635,7 @@ pub fn add_remaining_colors(colors: &[i32]) -> Vec<i32> {
     all_colors.extend_from_slice(colors);
     for color in 0..COLORS.len() {
         if !is_used[color] {
-            all_colors.push(color as i32);
+            all_colors.push(color);
         }
     }
     all_colors
@@ -771,7 +776,7 @@ fn rotate_image_ccw(image: &Image) -> Image {
 }
 
 #[must_use]
-pub fn blend_if_same_color(a: i32, b: i32) -> Res<i32> {
+pub fn blend_if_same_color(a: Color, b: Color) -> Res<Color> {
     if a == 0 {
         Ok(b)
     } else if b == 0 {

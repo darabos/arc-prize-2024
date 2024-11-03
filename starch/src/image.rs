@@ -120,7 +120,7 @@ impl MutImage {
         }
     }
     /// Draws the image in the given color.
-    pub fn paint_shape(&mut self, shape: &Shape, color: i32) {
+    pub fn paint_shape(&mut self, shape: &Shape, color: Color) {
         for Pixel { x, y, color: _ } in shape.cells() {
             if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
                 continue;
@@ -141,12 +141,12 @@ impl MutImage {
             self[(x as usize, y as usize)] = color;
         }
     }
-    pub fn draw_shape_with_colors(&mut self, shape: &Shape, colors: &[i32]) {
+    pub fn draw_shape_with_colors(&mut self, shape: &Shape, colors: &[Color]) {
         for Pixel { x, y, color } in shape.cells() {
             if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
                 continue;
             }
-            self[(x as usize, y as usize)] = colors[color as usize];
+            self[(x as usize, y as usize)] = colors[color];
         }
     }
     pub fn draw_shape_at(&mut self, shape: &Shape, pos: Vec2) {
