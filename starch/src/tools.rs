@@ -695,7 +695,7 @@ pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
         let end_y = if y == lines.horizontal.len() {
             image.height as i32
         } else {
-            lines.horizontal[y].pos
+            lines.horizontal[y].pos.min(image.height as i32)
         };
         if end_y <= start_y {
             continue;
@@ -709,7 +709,7 @@ pub fn grid_cut_image(image: &Image, lines: &LineSet) -> Vec<Image> {
             let end_x = if x == lines.vertical.len() {
                 image.width as i32
             } else {
-                lines.vertical[x].pos
+                lines.vertical[x].pos.min(image.width as i32)
             };
             if end_x <= start_x {
                 continue;

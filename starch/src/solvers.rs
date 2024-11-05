@@ -240,6 +240,9 @@ impl SolverState {
         tools::width_and_height(&self.output_images[i])
     }
     pub fn output_width_and_height_all(&self) -> Res<(i32, i32)> {
+        if self.output_images.is_empty() {
+            return Err("no output images");
+        }
         let (w, h) = self.output_width_and_height(0);
         for i in 1..self.output_images.len() {
             let (w1, h1) = self.output_width_and_height(i);
@@ -432,6 +435,9 @@ impl SolverState {
                 *shape = new_shape;
             }
         }
+    }
+    pub fn forget_all_lines(&mut self) {
+        self.lines = vec![Rc::new(tools::LineSet::default()); self.images.len()];
     }
 }
 

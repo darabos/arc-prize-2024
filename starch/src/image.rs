@@ -279,8 +279,9 @@ impl Image {
         let mut new_image = self.clone();
         new_image.top = viewpoint.top;
         new_image.left = viewpoint.left;
-        new_image.width = viewpoint.width;
-        new_image.height = viewpoint.height;
+        // Maybe an error would be more logical. But this is used for substates, and it's easier if we just return whatever we can.
+        new_image.width = viewpoint.width.min(self.full_width - viewpoint.left);
+        new_image.height = viewpoint.height.min(self.full_height - viewpoint.top);
         new_image
     }
 }

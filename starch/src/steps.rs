@@ -1516,6 +1516,7 @@ pub fn rotate_to_landscape(s: &mut SolverState, direction: tools::Rotation) -> R
         }
         Ok(())
     });
+    s.forget_all_lines();
     Ok(())
 }
 
@@ -1922,6 +1923,7 @@ pub fn make_common_output_image(s: &mut SolverState) -> Res<()> {
     });
     let new_output_image = new_output_image.freeze();
     s.images = s.images.iter().map(|_| new_output_image.clone()).collect();
+    s.forget_all_lines();
     Ok(())
 }
 
@@ -2218,6 +2220,13 @@ pub fn zoom_to_content(s: &mut SolverState, i: usize) -> Res<()> {
     if bb.bottom < 0 {
         return Err(err!("no content"));
     }
+    if bb.left < 0
+        || bb.top < 0
+        || bb.right >= image.width as i32
+        || bb.bottom >= image.height as i32
+    {
+        return Err(err!("out of bounds"));
+    }
     let new_image = image.subimage(
         bb.left as usize,
         bb.top as usize,
@@ -2322,6 +2331,13 @@ pub fn crop_to_shape(s: &mut SolverState, i: usize) -> Res<()> {
         && shape.bb.bottom >= image.height as i32
     {
         return Err("no change");
+    }
+    if shape.bb.left < 0
+        || shape.bb.top < 0
+        || shape.bb.right >= image.width as i32
+        || shape.bb.bottom >= image.height as i32
+    {
+        return Err(err!("out of bounds"));
     }
     *image = image.crop(
         shape.bb.left,

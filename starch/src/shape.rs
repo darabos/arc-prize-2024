@@ -22,7 +22,7 @@ pub struct Line {
     pub width: usize,
 }
 pub type Lines = Vec<Line>;
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct LineSet {
     pub horizontal: Lines,
     pub vertical: Lines,
