@@ -6,33 +6,39 @@ use std::rc::Rc;
 
 pub type Color = usize;
 
-pub const COLORS: [colored::Color; 12] = [
+pub const COLORS: [colored::Color; 10] = [
     colored::Color::Black,
-    colored::Color::BrightWhite,
     colored::Color::Blue,
-    colored::Color::Red,
+    colored::Color::TrueColor {
+        r: 249,
+        g: 60,
+        b: 49,
+    },
     colored::Color::Green,
     colored::Color::Yellow,
     colored::Color::TrueColor {
-        r: 128,
-        g: 0,
-        b: 128,
+        r: 153,
+        g: 153,
+        b: 153,
+    },
+    colored::Color::TrueColor {
+        r: 229,
+        g: 58,
+        b: 163,
     },
     colored::Color::TrueColor {
         r: 255,
-        g: 165,
-        b: 0,
+        g: 133,
+        b: 27,
     },
+    colored::Color::Cyan,
     colored::Color::TrueColor {
         r: 165,
         g: 42,
         b: 42,
     },
-    colored::Color::Magenta,
-    colored::Color::White,
-    colored::Color::Cyan,
 ];
-pub const UNSET_COLOR: Color = 13;
+pub const UNSET_COLOR: Color = 10;
 
 #[derive(Clone, Default)]
 pub struct Task {

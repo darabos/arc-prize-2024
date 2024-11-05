@@ -25,6 +25,8 @@ macro_rules! must_all_be_non_empty {
     };
 }
 
+pub type ColorList = Vec<Color>;
+
 pub fn use_colorsets_as_shapes(s: &mut SolverState) -> Res<()> {
     s.shapes = s.colorsets.clone();
     Ok(())
@@ -238,6 +240,17 @@ pub fn print_images_step(s: &mut SolverState) -> Res<()> {
 }
 
 #[allow(dead_code)]
+pub fn print_results_step(s: &mut SolverState) -> Res<()> {
+    println!("Results after {:?}", s.steps);
+    let results = s.get_results();
+    for (i, result) in results.iter().enumerate() {
+        println!("Example {}", i);
+        result.output.print();
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
 pub fn print_colors_step(s: &mut SolverState) -> Res<()> {
     s.print_colors();
     Ok(())
@@ -301,23 +314,32 @@ pub fn substates_for_each_color(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
-pub fn use_next_color(s: &mut SolverState, i: usize) -> Res<()> {
-    let first_color = s.colors[i][0];
-    let n = COLORS.len();
-    for j in 0..n - 1 {
-        s.colors[i][j] = s.colors[i][j + 1];
-    }
-    s.colors[i][n - 1] = first_color;
-    Ok(())
+pub fn select_next_color(s: &mut SolverState, i: usize) -> Res<()> {
+    select_nth_color(s, i, 1)
 }
 
-pub fn use_previous_color(s: &mut SolverState, i: usize) -> Res<()> {
-    let last_color = s.colors[i][COLORS.len() - 1];
-    let n = COLORS.len();
-    for j in (1..n).rev() {
-        s.colors[i][j] = s.colors[i][j - 1];
+pub fn select_previous_color(s: &mut SolverState, i: usize) -> Res<()> {
+    select_nth_color(s, i, -1)
+}
+
+pub fn select_background_color(s: &mut SolverState, i: usize) -> Res<()> {
+    let n = s.colors[i]
+        .iter()
+        .position(|&color| color == 0)
+        .ok_or("no background color")?;
+    select_nth_color(s, i, n as i32)
+}
+
+/// Rotates the colors by n places.
+fn select_nth_color(s: &mut SolverState, i: usize, n: i32) -> Res<()> {
+    let colors = &mut s.colors[i];
+    let num = COLORS.len() as i32;
+    let n: usize = ((n + num) % num) as usize;
+    let mut new_colors = vec![0; COLORS.len()];
+    for (j, &_color) in colors.iter().enumerate() {
+        new_colors[j] = colors[(j + n) as usize % COLORS.len()];
     }
-    s.colors[i][0] = last_color;
+    *colors = new_colors;
     Ok(())
 }
 
@@ -1448,12 +1470,12 @@ where
             return Err(err!("image too small"));
         }
         let image = &s.images[i];
-        let mut grid_cells = tools::grid_cut_image(image, &lines);
+        let mut grid_cells = tools::grid_cut_image(image, lines);
         if grid_cells.is_empty() {
             return Err(err!("nothing left after cutting"));
         }
         let selected = select_func(&grid_cells)?;
-        s.images[i] = grid_cells.swap_remove(selected).into();
+        s.images[i] = grid_cells.swap_remove(selected);
         Ok(())
     })?;
     // Keep the horizontal and vertical lines so we can restore the grid later.
@@ -1507,9 +1529,9 @@ pub fn rotate_some_images(
         .zip(needs_rotating)
         .map(|(image, rotate)| {
             if *rotate {
-                tools::rotate_image(image, direction).into()
+                tools::rotate_image(image, direction)
             } else {
-                (*image).clone()
+                image.clone()
             }
         })
         .collect()
@@ -2308,6 +2330,41 @@ pub fn crop_to_shape(s: &mut SolverState, i: usize) -> Res<()> {
         shape.bb.height(),
     );
     s.shift_shapes(i, -1 * shape.bb.top_left());
+    Ok(())
+}
+pub fn zoom_to_shapes(s: &mut SolverState, i: usize) -> Res<()> {
+    let image = &s.images[i];
+    let mut bb = tools::Rect::empty();
+    for cs in &s.shapes[i] {
+        bb.top = bb.top.min(cs.bb.top);
+        bb.left = bb.left.min(cs.bb.left);
+        bb.bottom = bb.bottom.max(cs.bb.bottom);
+        bb.right = bb.right.max(cs.bb.right);
+    }
+    if bb.top == 0
+        && bb.left == 0
+        && bb.bottom == image.height as i32
+        && bb.right == image.width as i32
+    {
+        return Err("no change");
+    }
+    if bb.bottom < 0 {
+        return Err(err!("no content"));
+    }
+    let new_image = image.subimage(
+        bb.left as usize,
+        bb.top as usize,
+        bb.width() as usize,
+        bb.height() as usize,
+    );
+    s.images[i] = new_image;
+    s.shift_shapes(
+        i,
+        Vec2 {
+            x: -bb.left,
+            y: -bb.top,
+        },
+    );
     Ok(())
 }
 pub fn inset_by_one(s: &mut SolverState, i: usize) -> Res<()> {

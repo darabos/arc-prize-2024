@@ -273,4 +273,14 @@ impl Image {
         }
         new_image.freeze()
     }
+
+    /// This image, with the viewpoint copied from the other image.
+    pub fn at(&self, viewpoint: &Image) -> Image {
+        let mut new_image = self.clone();
+        new_image.top = viewpoint.top;
+        new_image.left = viewpoint.left;
+        new_image.width = viewpoint.width;
+        new_image.height = viewpoint.height;
+        new_image
+    }
 }

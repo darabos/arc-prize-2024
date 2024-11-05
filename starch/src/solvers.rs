@@ -12,7 +12,6 @@ macro_rules! err {
 pub type Shapes = Vec<Shape>;
 pub type ShapesPerExample = Vec<Shapes>;
 pub type ImagePerExample = Vec<Image>;
-pub type ColorList = Vec<Color>;
 pub type ColorListPerExample = Vec<ColorList>;
 pub type LinesPerExample = Vec<Rc<tools::LineSet>>;
 pub type NumberSequence = Vec<i32>;
@@ -386,13 +385,14 @@ impl SolverState {
                 state.images = substate
                     .image_indexes
                     .iter()
-                    .map(|&i| self.images[i].clone())
+                    .enumerate()
+                    .map(|(i, &image_index)| self.images[image_index].at(&state.images[i]))
                     .collect();
                 res = state.run_step(&step);
                 if res.is_ok() {
                     any_change = true;
                     for (i, &image_index) in substate.image_indexes.iter().enumerate() {
-                        self.images[image_index] = state.images[i].clone();
+                        self.images[image_index] = substate.state.images[i].full();
                     }
                 }
             }
@@ -550,8 +550,8 @@ pub const ALL_STEPS: &[SolverStep] = &[
     step_each!(tile_shapes_after_scale_up),
     step_each!(use_image_as_shape),
     step_each!(use_image_without_background_as_shape),
-    step_each!(use_next_color),
-    step_each!(use_previous_color),
+    step_each!(select_next_color),
+    step_each!(select_previous_color),
 ];
 pub const SOLVERS: &[&[SolverStep]] = &[
     &[
@@ -606,10 +606,10 @@ pub const SOLVERS: &[&[SolverStep]] = &[
     ],
     &[
         // 7
-        step_each!(use_next_color),
+        step_each!(select_next_color),
         step_each!(filter_shapes_by_color),
         step_all!(save_shapes_and_load_previous),
-        step_each!(use_previous_color),
+        step_each!(select_previous_color),
         step_each!(filter_shapes_by_color),
         step_each!(move_shapes_to_touch_saved_shape),
     ],
@@ -739,7 +739,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(zoom_to_content),
         step_each!(extend_zoom_up_left_until_square),
         step_each!(make_image_rotationally_symmetrical),
-        step_each!(use_previous_color),
+        step_each!(select_previous_color),
         step_each!(recolor_image_to_selected_color),
         step_each!(draw_shapes),
         step_each!(reset_zoom),
@@ -793,7 +793,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(use_multicolor_shapes),
         step_each!(recolor_shapes_to_selected_color),
         step_all!(save_shapes_and_load_previous),
-        step_each!(use_next_color),
+        step_each!(select_next_color),
         step_each!(filter_shapes_by_color),
         step_each!(atomize_shapes),
         step_all!(substates_for_each_shape),
