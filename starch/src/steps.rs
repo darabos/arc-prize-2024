@@ -1673,47 +1673,119 @@ pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
     Ok(())
 }
 
+fn propagate_substate_images(s: &mut SolverState) {
+    match &mut s.substates {
+        Some(substates) => {
+            for substate in substates {
+                for (i, &image_index) in substate.image_indexes.iter().enumerate() {
+                    s.images[image_index] = substate.state.images[i].full();
+                }
+            }
+        }
+        None => {}
+    }
+}
+
 /// Maps everything to s.colors[0]. Restores the original colors at the end.
 /// For example, if colors[0] is [red, blue], and colors[1] is [purple, green],
 /// then in image 1 purple will be mapped to red, and green will be mapped to blue.
 /// Also affects the output images.
 pub fn use_relative_colors(s: &mut SolverState) -> Res<()> {
-    let mut new_images: ImagePerExample = vec![s.images[0].clone()];
-    let mut any_modified = false;
-    for i in 1..s.images.len() {
-        if s.colors[i] == s.colors[0] {
-            new_images.push(s.images[i].clone());
-        } else {
-            any_modified = true;
-            new_images
-                .push(tools::map_colors_in_image(&s.images[i], &s.colors[i], &s.colors[0]).into());
+    match &mut s.substates {
+        Some(substates) => {
+            let mut any_modified = false;
+            let uniform_colors = substates[0].state.colors[0].clone();
+            let mut original_colors: Vec<ColorList> = vec![];
+            for substate in substates {
+                let ss = &mut substate.state;
+                for i in 0..ss.images.len() {
+                    let ii = substate.image_indexes[i];
+                    let ssc = &ss.colors[i];
+                    original_colors.push(ssc.clone());
+                    if *ssc != uniform_colors {
+                        any_modified = true;
+                        ss.images[i] = s.images[ii].at(&ss.images[i]);
+                        ss.images[i] =
+                            tools::map_colors_in_image(&ss.images[i], &ssc, &uniform_colors);
+                        s.images[substate.image_indexes[i]] = ss.images[i].full();
+                        if i < ss.output_images.len() {
+                            ss.output_images[i] = tools::map_colors_in_image(
+                                &ss.output_images[i],
+                                &ssc,
+                                &uniform_colors,
+                            );
+                        }
+                        ss.colors[i] = uniform_colors.clone();
+                    }
+                }
+                ss.init_from_current_images();
+            }
+            if !any_modified {
+                return Err(err!("colors already uniform"));
+            }
+            s.add_finishing_step(move |s: &mut SolverState| {
+                let mut j = 0;
+                match &mut s.substates {
+                    Some(substates) => {
+                        for substate in substates {
+                            let ss = &mut substate.state;
+                            for i in 0..ss.images.len() {
+                                let ii = substate.image_indexes[i];
+                                if ss.colors[i] != original_colors[j] {
+                                    ss.images[i] = s.images[ii].at(&ss.images[i]);
+                                    ss.images[i] = tools::map_colors_in_image(
+                                        &ss.images[i],
+                                        &uniform_colors,
+                                        &original_colors[j],
+                                    );
+                                    s.images[substate.image_indexes[i]] = ss.images[i].full();
+                                }
+                                j += 1;
+                            }
+                        }
+                    }
+                    None => panic!("no substates"),
+                }
+                Ok(())
+            });
+            Ok(())
+        }
+        None => {
+            let mut any_modified = false;
+            let uniform_colors = s.colors[0].clone();
+            for i in 1..s.images.len() {
+                if s.colors[i] != uniform_colors {
+                    any_modified = true;
+                    s.images[i] =
+                        tools::map_colors_in_image(&s.images[i], &s.colors[i], &uniform_colors);
+                    s.colors[i] = uniform_colors.clone();
+                    if i < s.output_images.len() {
+                        s.output_images[i] = tools::map_colors_in_image(
+                            &s.output_images[i],
+                            &s.colors[i],
+                            &uniform_colors,
+                        );
+                    }
+                }
+            }
+            if !any_modified {
+                return Err(err!("colors already uniform"));
+            }
+            let original_colors: Vec<ColorList> = s.colors.iter().map(|c| c.clone()).collect();
+            s.init_from_current_images();
+            s.add_finishing_step(move |s: &mut SolverState| {
+                for i in 1..s.images.len() {
+                    s.images[i] = tools::map_colors_in_image(
+                        &s.images[i],
+                        &original_colors[0],
+                        &original_colors[i],
+                    );
+                }
+                Ok(())
+            });
+            Ok(())
         }
     }
-    if !any_modified {
-        return Err(err!("colors already uniform"));
-    }
-    let mut new_output_images: ImagePerExample = vec![];
-    for i in 0..s.output_images.len() {
-        new_output_images.push(
-            tools::map_colors_in_image(&s.output_images[i], &s.colors[i], &s.colors[0]).into(),
-        );
-    }
-    let original_colors = s.colors.clone();
-    s.colors = vec![s.colors[0].clone(); s.colors.len()];
-    s.output_images = new_output_images;
-    s.init_from_images(new_images);
-    s.add_finishing_step(move |s: &mut SolverState| {
-        let mut new_images: ImagePerExample = vec![s.images[0].clone()];
-        for i in 1..s.images.len() {
-            new_images.push(
-                tools::map_colors_in_image(&s.images[i], &original_colors[0], &original_colors[i])
-                    .into(),
-            );
-        }
-        s.images = new_images;
-        Ok(())
-    });
-    Ok(())
 }
 
 pub fn discard_small_shapes(s: &mut SolverState, i: usize) -> Res<()> {

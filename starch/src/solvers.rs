@@ -377,6 +377,9 @@ impl SolverState {
 
     pub fn run_step(&mut self, step: &'static SolverStep) -> Res<()> {
         self.steps.push(step);
+        if let SolverStep::Top(_, f) = step {
+            return f(self);
+        }
         if let Some(substates) = &mut self.substates {
             let mut any_change = false;
             let mut res = Ok(());
@@ -404,6 +407,7 @@ impl SolverState {
         match step {
             SolverStep::Each(_name, f) => self.apply(f)?,
             SolverStep::All(_name, f) => f(self)?,
+            SolverStep::Top(_name, f) => f(self)?,
         }
         Ok(())
     }
@@ -449,6 +453,7 @@ fn print_shapes(shapes: &ShapesPerExample) {
 pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
+    Top(&'static str, fn(&mut SolverState) -> Res<()>),
 }
 macro_rules! step_all {
     ($func:ident) => {
@@ -460,12 +465,18 @@ macro_rules! step_each {
         Each(stringify!($func), $func)
     };
 }
+macro_rules! step_top {
+    ($func:ident) => {
+        Top(stringify!($func), $func)
+    };
+}
 use SolverStep::*;
 impl std::fmt::Display for SolverStep {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Each(name, _func) => write!(f, "{}", name),
             All(name, _func) => write!(f, "{}", name),
+            Top(name, _func) => write!(f, "{}", name),
         }
     }
 }
@@ -836,6 +847,24 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(use_first_shape_save_the_rest),
         step_each!(atomize_shapes),
         step_each!(recolor_shapes_to_nearest_saved_shape),
+        step_each!(draw_shapes),
+    ],
+    &[
+        // 40
+        step_each!(allow_diagonals_in_shapes),
+        step_all!(substates_for_each_shape),
+        step_each!(zoom_to_shapes),
+        step_all!(refresh_from_image),
+        step_all!(allow_background_color_shapes),
+        step_each!(order_colors_by_shapes),
+        step_top!(use_relative_colors),
+        step_all!(allow_background_color_shapes),
+        step_each!(select_next_color),
+        step_each!(filter_shapes_by_color),
+        step_each!(order_shapes_from_top_to_bottom),
+        step_all!(use_first_shape_save_the_rest),
+        step_each!(select_previous_color),
+        step_each!(recolor_shapes_to_selected_color),
         step_each!(draw_shapes),
     ],
     &[
