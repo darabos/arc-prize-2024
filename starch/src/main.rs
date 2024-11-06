@@ -105,6 +105,7 @@ fn automatic_solver(task: &Task) -> tools::Res<Vec<Example>> {
                     println!("{} after {}", error.red(), step);
                 }
                 if s.correct_on_train() {
+                    s.print_steps();
                     return Ok(s.get_results()[task.train.len()..].to_vec());
                 }
                 queue.push_back(s);
@@ -140,19 +141,13 @@ fn evaluate_automatic_solver() {
             for i in 0..ref_images.len() {
                 let ref_image = &ref_images[i];
                 let image = &solutions[i].output;
-                if debug != "" {
-                    image.print();
-                }
                 if ref_image != image {
-                    if debug != "" {
-                        println!("expected:");
-                        ref_image.print();
-                    }
+                    println!("Task: {}", name);
+                    image.print();
+                    println!("expected:");
+                    ref_image.print();
                     all_correct = false;
                     break;
-                }
-                if debug != "" {
-                    image.print();
                 }
             }
             if all_correct {
@@ -245,6 +240,6 @@ fn evaluate_manual_solvers() {
 }
 
 fn main() {
-    // evaluate_automatic_solver();
-    evaluate_manual_solvers();
+    evaluate_automatic_solver();
+    // evaluate_manual_solvers();
 }

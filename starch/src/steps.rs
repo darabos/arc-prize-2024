@@ -25,6 +25,16 @@ macro_rules! must_all_be_non_empty {
     };
 }
 
+fn ensure_output_images(s: &mut SolverState) -> Res<()> {
+    if s.output_images.is_empty() {
+        return Err(err!("no output images"));
+    }
+    if s.images.len() == s.output_images.len() {
+        return Err(err!("we are in a substate without the test cases"));
+    }
+    Ok(())
+}
+
 pub type ColorList = Vec<Color>;
 
 pub fn use_colorsets_as_shapes(s: &mut SolverState) -> Res<()> {
@@ -79,7 +89,7 @@ pub fn grow_flowers<F>(s: &mut SolverState, func: F) -> Res<()>
 where
     F: Fn(&[Image], &[&Shape]) -> Res<Shape>,
 {
-    must_not_be_empty!(&s.output_images);
+    ensure_output_images(s)?;
     // It's okay for some images to not have dots.
     let indexes: Vec<usize> = s
         .shapes
@@ -368,7 +378,7 @@ pub fn move_shapes_to_touch_saved_shape(s: &mut SolverState, i: usize) -> Res<()
 
 /// Scales up the image to match the output image.
 pub fn scale_up_image(s: &mut SolverState) -> Res<()> {
-    must_not_be_empty!(&s.output_images);
+    ensure_output_images(s)?;
     // Find ratio from looking at example outputs.
     let output_width = s.output_images[0].width as i32;
     let input_width = s.images[0].width as i32;
@@ -403,7 +413,7 @@ pub fn scale_up_image(s: &mut SolverState) -> Res<()> {
 /// Scales up the image to match the output image after adding a grid stored in horizontal_lines and
 /// vertical_lines.
 pub fn scale_up_image_add_grid(s: &mut SolverState) -> Res<()> {
-    must_not_be_empty!(&s.output_images);
+    ensure_output_images(s)?;
     let lines = &s.saved_lines;
     must_not_be_empty!(lines);
     let lines = &lines[lines.len() - 1];
@@ -439,7 +449,7 @@ pub fn scale_up_image_add_grid(s: &mut SolverState) -> Res<()> {
 
 /// Tiles the image to match the output image.
 pub fn tile_image(s: &mut SolverState) -> Res<()> {
-    must_not_be_empty!(&s.output_images);
+    ensure_output_images(s)?;
     // Find ratio from looking at example outputs.
     let output_width = s.output_images[0].width;
     let input_width = s.images[0].width;
@@ -467,7 +477,7 @@ pub fn tile_image(s: &mut SolverState) -> Res<()> {
 
 /// Tiles the image to match the output image.
 pub fn tile_image_add_grid(s: &mut SolverState) -> Res<()> {
-    must_not_be_empty!(&s.output_images);
+    ensure_output_images(s)?;
     // Find ratio from looking at example outputs.
     let lines = &s.saved_lines;
     must_not_be_empty!(lines);
@@ -548,7 +558,7 @@ pub fn discard_shapes_touching_border(s: &mut SolverState, i: usize) -> Res<()> 
 }
 
 pub fn recolor_shapes_per_output(s: &mut SolverState) -> Res<()> {
-    must_not_be_empty!(&s.output_images);
+    ensure_output_images(s)?;
     // Get colors from first output_image.
     let shapes = &s.shapes[0];
     let colors: Res<Vec<Color>> = shapes
@@ -703,7 +713,7 @@ pub fn tile_shape(
 }
 
 pub fn use_output_size(s: &mut SolverState) -> Res<()> {
-    must_not_be_empty!(&s.output_images);
+    ensure_output_images(s)?;
     let (current_width, current_height) = s.width_and_height(0);
     let (output_width, output_height) = s.output_width_and_height(0);
     if current_width == output_width && current_height == output_height {
@@ -776,7 +786,7 @@ pub fn discard_background_shapes(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 pub fn move_shapes_per_output_shapes(s: &mut SolverState) -> Res<()> {
-    must_not_be_empty!(&s.output_shapes);
+    ensure_output_images(s)?;
     let shapes0 = &s.shapes[0];
     let output_shapes0 = &s.output_shapes[0];
     // Figure out the offset.
@@ -995,7 +1005,7 @@ pub fn recolor_saved_shapes_to_current_shape(s: &mut SolverState, i: usize) -> R
 }
 
 pub fn split_into_two_images(s: &mut SolverState) -> Res<()> {
-    must_not_be_empty!(&s.output_images);
+    ensure_output_images(s)?;
     let (width, height) = s.width_and_height_all()?;
     let (output_width, output_height) = s.output_width_and_height_all()?;
     if width == output_width * 2 + 1 {
@@ -1661,14 +1671,15 @@ pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
     }
     for image in &mut s.images {
         let mut new_image = image.molten();
-        new_image.update(|_x, _y, cell| {
-            let c = color_map[cell as usize];
-            if c == tools::UNSET_COLOR {
-                cell
-            } else {
-                c
+        for x in 0..new_image.width {
+            for y in 0..new_image.height {
+                let c = color_map[new_image[(x, y)]];
+                if c == tools::UNSET_COLOR {
+                    return Err(err!("unmapped color in input image"));
+                }
+                new_image[(x, y)] = c;
             }
-        });
+        }
         *image = new_image.freeze();
     }
     Ok(())
@@ -1910,6 +1921,7 @@ pub fn deduplicate_vertically(s: &mut SolverState, i: usize) -> Res<()> {
 }
 
 pub fn make_common_output_image(s: &mut SolverState) -> Res<()> {
+    ensure_output_images(s)?;
     s.output_width_and_height_all()?;
     let mut new_output_image = s.output_images[0].molten();
     new_output_image.update(|x, y, mut c| {
@@ -2047,6 +2059,13 @@ pub fn atomize_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     Ok(())
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LineDirection {
+    Unset,
+    Horizontal,
+    Vertical,
+}
+
 /// Expands each pixel in the shapes to a vertical or horizontal infinite line of the same color.
 /// The direction and order of the colors is gleaned from the output image.
 /// The lines are drawn on the image.
@@ -2060,12 +2079,12 @@ pub fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
     let mut vertical_count = vec![0; COLORS.len()];
     for i in 0..s.output_images.len() {
         let image = &s.output_images[i];
-        let (w, h) = tools::width_and_height(image);
+        let (w, h) = (image.width, image.height);
         for shape in &s.shapes[i] {
+            if !image.fits_shape(shape) || !s.images[i].fits_shape(shape) {
+                return Err(err!("shape out of bounds"));
+            }
             for tools::Pixel { x, y, color } in shape.cells() {
-                if x < 0 || x >= w || y < 0 || y >= h {
-                    return Err(err!("shape out of bounds"));
-                }
                 for ix in 0..w {
                     if image[(ix as usize, y as usize)] == color {
                         horizontal_count[color as usize] += 1;
@@ -2079,11 +2098,16 @@ pub fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
             }
         }
     }
-    let is_horizontal = horizontal_count
-        .iter()
-        .zip(&vertical_count)
-        .map(|(h, v)| h > v)
-        .collect();
+    let mut line_direction = vec![LineDirection::Unset; COLORS.len()];
+    for c in 0..COLORS.len() {
+        let hc = horizontal_count[c];
+        let vc = vertical_count[c];
+        if hc > vc {
+            line_direction[c] = LineDirection::Horizontal;
+        } else if vc > hc {
+            line_direction[c] = LineDirection::Vertical;
+        }
+    }
     // Figure out the order of colors.
     'order: for order in tools::possible_orders(&colors) {
         let reverse_colors = tools::reverse_colors(&order);
@@ -2093,7 +2117,7 @@ pub fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
             shapes.sort_by_key(|s| reverse_colors[s.color() as usize]);
             let (w, h) = tools::width_and_height(image);
             let mut new_image = MutImage::new(w as usize, h as usize);
-            dots_to_lines(&shapes, &is_horizontal, &mut new_image);
+            draw_lines_at_pixels(&shapes, &line_direction, &mut new_image);
             if !tools::a_matches_b_where_a_is_not_transparent(&new_image.freeze(), image) {
                 continue 'order;
             }
@@ -2103,7 +2127,7 @@ pub fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
             let mut new_image = s.images[i].molten();
             let mut shapes = s.shapes[i].clone();
             shapes.sort_by_key(|s| reverse_colors[s.color() as usize]);
-            dots_to_lines(&shapes, &is_horizontal, &mut new_image);
+            draw_lines_at_pixels(&shapes, &line_direction, &mut new_image);
             s.images[i] = new_image.freeze();
         }
         return Ok(());
@@ -2111,21 +2135,33 @@ pub fn dots_to_lines_per_output(s: &mut SolverState) -> Res<()> {
     Err(err!("could not figure out dots"))
 }
 
-pub fn dots_to_lines(shapes: &Shapes, is_horizontal: &Vec<bool>, image: &mut MutImage) {
+#[must_use]
+pub fn draw_lines_at_pixels(
+    shapes: &Shapes,
+    line_direction: &Vec<LineDirection>,
+    image: &mut MutImage,
+) -> Res<()> {
     let (w, h) = (image.width, image.height);
     for shape in shapes {
         for tools::Pixel { x, y, color } in shape.cells() {
-            if is_horizontal[color as usize] {
-                for ix in 0..w {
-                    image[(ix as usize, y as usize)] = color;
+            match line_direction[color] {
+                LineDirection::Horizontal => {
+                    for ix in 0..w {
+                        image[(ix as usize, y as usize)] = color;
+                    }
                 }
-            } else {
-                for iy in 0..h {
-                    image[(x as usize, iy as usize)] = color;
+                LineDirection::Vertical => {
+                    for iy in 0..h {
+                        image[(x as usize, iy as usize)] = color;
+                    }
+                }
+                LineDirection::Unset => {
+                    return Err(err!("no line direction for color"));
                 }
             }
         }
     }
+    Ok(())
 }
 
 /// Deletes a few pixels from colors that are otherwise unused.
@@ -2169,7 +2205,6 @@ pub fn shrink_to_output_size_from_top_left(s: &mut SolverState, i: usize) -> Res
     let (ow, oh) = s.output_width_and_height_all()?;
     let (w, h) = s.width_and_height(i);
     if w < ow || h < oh {
-        println!("{} < {} or {} < {}", w, ow, h, oh);
         return Err("Output is larger");
     } else if w == ow && h == oh {
         return Err("no change");

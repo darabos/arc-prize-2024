@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::tools::{Color, Image, MutImage, Res, Vec2};
+use crate::tools::{Color, Image, MutImage, Res, Vec2, UNSET_COLOR};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Pixel {
@@ -90,22 +90,21 @@ impl Shape {
         assert!(!pixels.is_empty());
         pixels.sort();
         let mut bb = Rect::empty();
-        for &Pixel { x, y, color: _ } in &pixels {
-            bb.top = bb.top.min(y);
-            bb.left = bb.left.min(x);
-            bb.bottom = bb.bottom.max(y);
-            bb.right = bb.right.max(x);
+        for &p in &pixels {
+            bb.top = bb.top.min(p.y);
+            bb.left = bb.left.min(p.x);
+            bb.bottom = bb.bottom.max(p.y);
+            bb.right = bb.right.max(p.x);
+        }
+        let mut previous = Vec2 { x: -1, y: -1 };
+        for p in &mut pixels {
+            p.x -= bb.left;
+            p.y -= bb.top;
+            assert!(p.x != previous.x || p.y != previous.y, "duplicate pixel");
+            previous = p.pos();
         }
         Shape {
-            pixels: pixels
-                .into_iter()
-                .map(|p| Pixel {
-                    x: p.x - bb.left,
-                    y: p.y - bb.top,
-                    color: p.color,
-                })
-                .collect::<Vec<_>>()
-                .into(),
+            pixels: pixels.into(),
             bb,
             has_relative_colors: false,
         }
@@ -226,32 +225,37 @@ impl Shape {
         self.cells().next().unwrap()
     }
     #[must_use]
+    /// x_step is the tiling width (can be 0 for no tiling in x). width is the width of the tiling area.
+    /// Same for y_step and height.
     pub fn tile(&self, x_step: i32, width: i32, y_step: i32, height: i32) -> Res<Shape> {
         let mut new_cells = vec![];
         for Pixel { x, y, color } in self.cells() {
-            for &tx in &[x_step, -x_step] {
-                let mut cx = x;
-                while cx >= 0 && cx < width {
-                    for &ty in &[y_step, -y_step] {
-                        let mut cy = y;
-                        while cy >= 0 && cy < height {
-                            new_cells.push(Pixel {
-                                x: cx,
-                                y: cy,
-                                color: color,
-                            });
-                            if ty == 0 {
-                                break;
-                            }
-                            cy += ty;
-                        }
-                    }
-                    if tx == 0 {
+            let mut cx = if x_step == 0 { x } else { x % x_step };
+            while cx < width {
+                let mut cy = if y_step == 0 { y } else { y % y_step };
+                while cy < height {
+                    new_cells.push(Pixel {
+                        x: cx,
+                        y: cy,
+                        color: color,
+                    });
+                    if y_step == 0 {
                         break;
+                    } else {
+                        cy += y_step;
                     }
-                    cx += tx;
+                }
+                if x_step == 0 {
+                    break;
+                } else {
+                    cx += x_step;
                 }
             }
+        }
+        if x_step != 0 && x_step < self.bb.width() || y_step != 0 && y_step < self.bb.height() {
+            // The shifted bounding boxes overlap, so we may have duplicate pixels. Remove them.
+            new_cells.sort();
+            new_cells.dedup_by(|a, b| a.x == b.x && a.y == b.y);
         }
         Shape::if_not_empty(new_cells)
     }
@@ -387,27 +391,27 @@ impl Shape {
 
     #[must_use]
     pub fn rotate_90_cw(&self) -> Shape {
-        let mut new_cells = vec![];
-        for Pixel { x, y, color } in self.cells() {
-            new_cells.push(Pixel {
-                x: -y,
-                y: x,
-                color: color,
-            });
-        }
+        let new_cells: Vec<Pixel> = self
+            .cells()
+            .map(|cell| Pixel {
+                x: -cell.y,
+                y: cell.x,
+                color: cell.color,
+            })
+            .collect();
         Shape::new(new_cells)
     }
 
     #[must_use]
     pub fn flip_horizontal(&self) -> Shape {
-        let mut new_cells = vec![];
-        for Pixel { x, y, color } in self.cells() {
-            new_cells.push(Pixel {
-                x: -x,
-                y: y,
-                color: color,
-            });
-        }
+        let new_cells = self
+            .cells()
+            .map(|cell| Pixel {
+                x: -cell.x,
+                y: cell.y,
+                color: cell.color,
+            })
+            .collect();
         Shape::new(new_cells)
     }
 }

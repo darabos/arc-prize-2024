@@ -284,4 +284,13 @@ impl Image {
         new_image.height = viewpoint.height.min(self.full_height - viewpoint.top);
         new_image
     }
+    pub fn fits_image(&self, other: &Image) -> bool {
+        self.width >= other.width && self.height >= other.height
+    }
+    pub fn fits_shape(&self, shape: &Shape) -> bool {
+        shape.bb.top >= 0
+            && shape.bb.left >= 0
+            && shape.bb.right < self.width as i32
+            && shape.bb.bottom < self.height as i32
+    }
 }

@@ -412,10 +412,12 @@ impl SolverState {
     }
 
     pub fn correct_on_train(&self) -> bool {
-        self.images[..self.task.train.len()]
-            .iter()
-            .zip(self.output_images.iter())
-            .all(|(image, output)| image == output)
+        for i in 0..self.task.train.len() {
+            if self.output_images[i] != self.images[i] {
+                return false;
+            }
+        }
+        true
     }
 
     pub fn add_finishing_step(&mut self, f: impl Fn(&mut SolverState) -> Res<()> + 'static) {
