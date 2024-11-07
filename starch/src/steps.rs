@@ -1648,6 +1648,7 @@ pub fn follow_shape_sequence_per_output(s: &mut SolverState) -> Res<()> {
 }
 
 pub fn remap_colors_per_output(s: &mut SolverState) -> Res<()> {
+    ensure_output_images(s)?;
     let mut color_map: Vec<Color> = vec![tools::UNSET_COLOR; COLORS.len()];
     for i in 0..s.output_images.len() {
         let input = &s.images[i];
@@ -1761,10 +1762,10 @@ pub fn place_shapes_best_match_with_all_transforms(s: &mut SolverState, i: usize
     }
     let mut new_shapes = vec![];
     for shape in shapes {
-        if shape.pixels.len() < 3 {
+        if shape.pixels.len() < 2 {
             return Err(err!("shape too small"));
         }
-        if shape.pixels.len() > 10 {
+        if shape.pixels.len() > 20 {
             return Err(err!("shape too big"));
         }
         let mut variations = vec![shape.clone()];
@@ -1804,8 +1805,11 @@ pub fn place_shapes_best_match_with_just_translation(s: &mut SolverState, i: usi
     }
     let mut new_shapes = vec![];
     for shape in shapes {
-        if shape.pixels.len() < 3 {
+        if shape.pixels.len() < 2 {
             return Err(err!("shape too small"));
+        }
+        if shape.pixels.len() > 20 {
+            return Err(err!("shape too big"));
         }
         let place = tools::place_shape(image, shape)?;
         new_shapes.push(shape.move_by(place.pos - shape.bb.top_left()).into());

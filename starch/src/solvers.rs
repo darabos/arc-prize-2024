@@ -906,3 +906,17 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(repeat_shapes_horizontally),
     ],
 ];
+
+/// Relative costs of different steps. Unlisted steps have a cost of 1.
+const STEP_COSTS: &[(&str, usize)] = &[
+    ("connect_aligned_pixels_in_shapes_8", 8),
+    ("connect_aligned_pixels_in_shapes_4", 5),
+    ("refresh_from_image", 5),
+    ("use_relative_colors", 4),
+    ("remove_grid", 3),
+    ("rotate_to_landscape_cw", 2),
+    ("rotate_to_landscape_ccw", 2),
+    ("allow_diagonals_in_shapes", 3),
+    ("cover_image_with_shapes", 3),
+    ("repeat_shapes_horizontally", 3),
+];
