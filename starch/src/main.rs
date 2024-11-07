@@ -40,46 +40,55 @@ pub fn parse_example(example: &serde_json::Value) -> Example {
     Example { input, output }
 }
 
-pub fn parse_task(id: &str, task: &serde_json::Value) -> Task {
+pub fn parse_task(id: &str, task: &serde_json::Value) -> (Task, Vec<Image>) {
     let train = task["train"].as_array().expect("Should have been an array");
     let train = train.iter().map(|example| parse_example(example)).collect();
     let test = task["test"].as_array().expect("Should have been an array");
     let test = test.iter().map(|example| parse_example(example)).collect();
-    Task {
-        id: id.into(),
-        train,
-        test,
-    }
+    let ref_images: Vec<Image> = task["solution"]
+        .as_array()
+        .expect("Should have been an array")
+        .iter()
+        .map(|image| parse_image(image))
+        .collect();
+    (
+        Task {
+            id: id.into(),
+            train,
+            test,
+        },
+        ref_images,
+    )
 }
 
-pub fn read_arc_file(file_path: &str) -> Vec<(String, Task)> {
+pub fn read_arc_file(file_path: &str) -> serde_json::Map<String, serde_json::Value> {
     let contents = fs::read_to_string(file_path).expect("Should have been able to read the file");
     let data: serde_json::Value =
         serde_json::from_str(&contents).expect("Should have been able to parse the json");
-    let data = data.as_object().expect("Should have been an object");
-    let mut tasks = Vec::new();
-    for (key, task) in data {
-        tasks.push((key.clone(), parse_task(key, task)));
-    }
-    tasks
+    data.as_object()
+        .expect("Should have been an object")
+        .clone() // Not sure how to avoid this.
 }
 
-pub fn read_arc_solutions_file(file_path: &str) -> Map<String, Vec<Image>> {
+pub fn read_arc_solutions_file(file_path: &str) -> serde_json::Map<String, serde_json::Value> {
     let contents = fs::read_to_string(file_path).expect("Should have been able to read the file");
     let data: serde_json::Value =
         serde_json::from_str(&contents).expect("Should have been able to parse the json");
-    let data = data.as_object().expect("Should have been an object");
-    let mut tasks = Map::new();
-    for (key, task) in data {
-        let images = task
-            .as_array()
-            .expect("Should have been an array")
-            .iter()
-            .map(|image| parse_image(image))
-            .collect();
-        tasks.insert(key.clone(), images);
-    }
+    data.as_object()
+        .expect("Should have been an object")
+        .clone() // Not sure how to avoid this.
+}
+
+pub fn read_files() -> Vec<(String, serde_json::Value)> {
+    let tasks = read_arc_file("../arc-agi_training_challenges.json");
+    let mut solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
     tasks
+        .into_iter()
+        .map(|(k, mut v)| {
+            v["solution"] = solutions.remove(&k).unwrap_or_default();
+            (k, v)
+        })
+        .collect::<Vec<(String, serde_json::Value)>>()
 }
 
 pub fn save_solution(file_path: &str, state: &solvers::SolverState) {
@@ -147,7 +156,7 @@ impl StepTree {
         if let Some(last) = prefix.last() {
             if let Some(child) = self.children.get(last) {
                 for (k, v) in child.get_counts(&prefix[..prefix.len() - 1]) {
-                    *counts.entry(k).or_insert(0) += v;
+                    *counts.entry(k).or_insert(0) += v * 10;
                 }
             }
         }
@@ -312,32 +321,19 @@ fn automatic_solver(task: &Task) -> tools::Res<solvers::SolverState> {
 
 #[allow(dead_code)]
 fn evaluate_automatic_solver() {
-    let tasks = read_arc_file("../arc-agi_training_challenges.json");
-    let task_names: Vec<&String> = tasks.iter().map(|(name, _)| name).collect();
+    let tasks = read_files();
     // let task_names = task_names.into_iter().take(1).collect::<Vec<&String>>();
     let bar = ProgressBar::new(tasks.len() as u64);
     set_bar_style(&bar);
     let mutex = std::sync::Arc::new(std::sync::Mutex::new(()));
-    let correct: usize = task_names
+    let correct: usize = tasks
         .par_iter()
-        .map(|&name| {
-            let tasks = read_arc_file("../arc-agi_training_challenges.json");
-            let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
-            let task = tasks
-                .iter()
-                .find(|(n, _)| n == name)
-                .expect("Should have been a task")
-                .1
-                .clone();
+        .map(|(name, value)| {
+            let (task, ref_images) = parse_task(name, value);
             bar.inc(1);
-            // println!("Task: {}", name);
-            // tools::print_task(task);
             if let Ok(state) = automatic_solver(&task) {
                 state.print_steps();
                 let solutions = state.get_results()[task.train.len()..].to_vec();
-                let ref_images = ref_solutions
-                    .get(name)
-                    .expect("Should have been a solution");
                 assert!(!ref_images.is_empty());
                 let mut all_correct = true;
                 for i in 0..ref_images.len() {
@@ -368,76 +364,79 @@ fn evaluate_automatic_solver() {
 
 #[allow(dead_code)]
 fn evaluate_manual_solvers() {
-    let tasks = read_arc_file("../arc-agi_training_challenges.json");
-    let ref_solutions = read_arc_solutions_file("../arc-agi_training_solutions.json");
+    let tasks = read_files();
     let mut expected_correct: Vec<&str> = "007bbfb7 00d62c1b 025d127b 045e512c 0520fde7 05269061 05f2a901 06df4c85 08ed6ac7 09629e4f 0962bcdd 0a938d79 0b148d64 0ca9ddb6 0d3d703e 0dfd9992 0e206a2e 10fcaaa3 11852cab 1190e5a7 137eaa0f 150deff5 178fcbfb 1a07d186 1b2d62fb 1b60fb0c 1bfc4729 1c786137 1caeab9d 1cf80156 1e0a9b12 1e32b0e9 1f0c79e5 1f642eb9 1f85a75f 1f876c06 2013d3e2 2204b7a8 22168020 22eb0ac0 25ff71a9 29ec7d0e 2dc579da 2dee498d 3428a4f5 39a8645d 4258a5f9 48d8fb45 4c4377d9 6430c8c4 6d0aefbc 8403a5d5 90c28cc7 913fb3ed 963e52fc 99b1bc43 a416b8f3 a5313dff ae4f1146 b1948b0a ba97ae07 be94b721 c3f564a4 c8f0f002 ce4f8723 d364b489 d511f180 d687bc17 dc1df850 ded97339 e9afcf9a ea32f347 f2829549".split(" ").collect();
-    let mut correct: Vec<colored::ColoredString> = vec![];
-    // let debug = (40, "22168020");
+    // let mut correct: Vec<colored::ColoredString> = vec![];
+    let mutex = std::sync::Arc::new(std::sync::Mutex::new(()));
+    // let debug = (42, "");
     let debug = (-1, "");
-    let tasks: Vec<(String, Task)> = if debug.0 < 0 {
+    let tasks: Vec<(String, serde_json::Value)> = if debug.0 < 0 {
         tasks
     } else {
         tasks.into_iter().filter(|(k, _)| *k == debug.1).collect()
     };
     let bar = ProgressBar::new(tasks.len() as u64);
     set_bar_style(&bar);
-    for (name, task) in &tasks {
-        bar.inc(1);
-        // println!("Task: {}", name);
-        // tools::print_task(task);
-        let state = solvers::SolverState::new(task);
-        let active_solvers = if debug.0 < 0 {
-            &solvers::SOLVERS
-        } else {
-            &solvers::SOLVERS[debug.0 as usize..debug.0 as usize + 1]
-        };
-        for (solver_index, solver) in active_solvers.iter().enumerate() {
-            let mut s = state.clone();
-            if let Err(error) = s.run_steps(solver) {
-                if debug.0 >= 0 {
-                    println!("{}: {}", name, error.red());
-                }
-                continue;
-            }
-            let solutions = s.get_results()[task.train.len()..].to_vec();
-            let ref_images = ref_solutions
-                .get(name)
-                .expect("Should have been a solution");
-            let mut all_correct = true;
-            for i in 0..ref_images.len() {
-                let ref_image = &ref_images[i];
-                let image = &solutions[i].output;
-                if debug.0 >= 0 {
-                    image.print();
-                }
-                if ref_image != image {
+    let correct: Vec<&String> = tasks
+        .par_iter()
+        // .iter()
+        .map(|(name, value)| {
+            let (task, ref_images) = parse_task(name, value);
+            bar.inc(1);
+            let state = solvers::SolverState::new(&task);
+            let active_solvers = if debug.0 < 0 {
+                &solvers::SOLVERS
+            } else {
+                &solvers::SOLVERS[debug.0 as usize..debug.0 as usize + 1]
+            };
+            for (solver_index, solver) in active_solvers.iter().enumerate() {
+                let mut s = state.clone();
+                if let Err(error) = s.run_steps(solver) {
                     if debug.0 >= 0 {
-                        println!("expected:");
-                        ref_image.print();
+                        println!("{}: {}", name, error.red());
                     }
-                    all_correct = false;
-                    break;
+                    continue;
                 }
-                if debug.0 < 0 {
-                    image.print();
+                let solutions = s.get_results()[task.train.len()..].to_vec();
+                let mut all_correct = true;
+                for i in 0..ref_images.len() {
+                    let ref_image = &ref_images[i];
+                    let image = &solutions[i].output;
+                    if debug.0 >= 0 {
+                        image.print();
+                    }
+                    if ref_image != image {
+                        if debug.0 >= 0 {
+                            println!("expected:");
+                            ref_image.print();
+                        }
+                        all_correct = false;
+                        break;
+                    }
+                    if debug.0 < 0 {
+                        image.print();
+                    }
+                    println!("{}: {} (by {})", name, "Correct".green(), solver_index);
                 }
-                println!("{}: {} (by {})", name, "Correct".green(), solver_index);
+                if all_correct {
+                    let _lock = mutex.lock().unwrap();
+                    save_solution("../solutions.json", &s);
+                    return Some(name);
+                }
             }
-            if all_correct {
-                save_solution("../solutions.json", &s);
-                if let Some(e) = expected_correct.iter().position(|&x| x == name) {
-                    correct.push(name.white());
-                    expected_correct.remove(e);
-                } else {
-                    correct.push(name.green());
-                }
-                break;
-            }
-        }
-    }
+            None
+        })
+        .flatten()
+        .collect();
     bar.finish();
     println!("Correct: {}/{}", correct.len(), tasks.len());
     for c in correct {
+        if let Some(e) = expected_correct.iter().position(|&x| x == c) {
+            print!("{} ", c.white());
+            expected_correct.remove(e);
+        } else {
+            print!("{} ", c.green());
+        }
         print!("{} ", c);
     }
     println!("");

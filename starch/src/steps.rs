@@ -97,15 +97,15 @@ where
         .enumerate()
         .filter_map(|(i, shapes)| {
             let dots: usize = shapes.iter().map(|shape| shape.pixels.len()).sum();
-            if i >= s.output_images.len() || dots == 0 || dots > 5 {
+            if i >= s.output_images.len() || dots == 0 || dots > 10 {
                 None
             } else {
                 Some(i)
             }
         })
         .collect();
-    if indexes.is_empty() {
-        return Err(err!("no dots"));
+    if indexes.len() < 2 {
+        return Err(err!("not enough dots"));
     }
     let dots: Vec<&Shape> = indexes.iter().map(|&i| &s.shapes[i][0]).collect();
     let output_images: Vec<Image> = indexes

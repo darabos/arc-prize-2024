@@ -888,6 +888,11 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_all!(recolor_image_per_output),
     ],
     &[
+        // d364b489
+        step_all!(use_colorsets_as_shapes),
+        step_all!(grow_flowers_square),
+    ],
+    &[
         // ded97339
         step_all!(use_colorsets_as_shapes),
         step_each!(connect_aligned_pixels_in_shapes_4),

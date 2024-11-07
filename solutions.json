@@ -323,6 +323,12 @@
   "9172f3a0": [
     "scale_up_image"
   ],
+  "9565186b": [
+    "order_shapes_by_bb_size_decreasing",
+    "use_first_shape_save_the_rest",
+    "grow_flowers_square",
+    "draw_shapes"
+  ],
   "963e52fc": [
     "tile_image"
   ],
@@ -382,6 +388,12 @@
   "c8f0f002": [
     "remap_colors_per_output"
   ],
+  "c909285e": [
+    "use_colorsets_as_shapes",
+    "order_shapes_by_bb_size_increasing",
+    "use_first_shape_save_the_rest",
+    "crop_to_shape"
+  ],
   "ce22a75a": [
     "grow_flowers_square",
     "recolor_image_per_output"
@@ -411,6 +423,12 @@
     "order_shapes_by_weight_decreasing",
     "save_first_shape_use_the_rest",
     "move_shapes_to_touch_saved_shape"
+  ],
+  "d9fac9be": [
+    "order_shapes_by_bb_size_decreasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "make_common_output_image"
   ],
   "dc1df850": [
     "filter_shapes_by_color",
@@ -447,5 +465,19 @@
     "split_into_two_images",
     "boolean_with_saved_image_nand",
     "recolor_image_per_output"
+  ],
+  "f8b3ba0a": [
+    "use_colorsets_as_shapes",
+    "order_shapes_by_weight_increasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "make_common_output_image"
+  ],
+  "f8ff0b80": [
+    "use_colorsets_as_shapes",
+    "order_shapes_by_weight_increasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "make_common_output_image"
   ]
 }
