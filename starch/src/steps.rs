@@ -1752,15 +1752,28 @@ pub fn erase_shapes(s: &mut SolverState, i: usize) -> Res<()> {
 pub fn place_shapes_best_match_with_all_transforms(s: &mut SolverState, i: usize) -> Res<()> {
     // TODO: This is kinda slow. Find a way to error out when it's useless.
     let image = &s.images[i];
+    let shapes = &s.shapes[i];
+    if shapes.len() == 0 {
+        return Err(err!("no shapes"));
+    }
+    if shapes.len() > 5 {
+        return Err(err!("too many shapes"));
+    }
     let mut new_shapes = vec![];
-    for shape in &s.shapes[i] {
+    for shape in shapes {
+        if shape.pixels.len() < 3 {
+            return Err(err!("shape too small"));
+        }
+        if shape.pixels.len() > 10 {
+            return Err(err!("shape too big"));
+        }
         let mut variations = vec![shape.clone()];
         for _ in 0..3 {
-            variations.push(variations.last().unwrap().rotate_90_cw().into());
+            variations.push(variations.last().unwrap().rotate_90_cw());
         }
-        variations.push(variations.last().unwrap().flip_horizontal().into());
-        for _ in 0..4 {
-            variations.push(variations.last().unwrap().rotate_90_cw().into());
+        variations.push(variations.last().unwrap().flip_horizontal());
+        for _ in 0..3 {
+            variations.push(variations.last().unwrap().rotate_90_cw());
         }
         let (i, place) = variations
             .iter()
@@ -1782,8 +1795,18 @@ pub fn place_shapes_best_match_with_all_transforms(s: &mut SolverState, i: usize
 
 pub fn place_shapes_best_match_with_just_translation(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &s.images[i];
+    let shapes = &s.shapes[i];
+    if shapes.len() == 0 {
+        return Err(err!("no shapes"));
+    }
+    if shapes.len() > 5 {
+        return Err(err!("too many shapes"));
+    }
     let mut new_shapes = vec![];
-    for shape in &s.shapes[i] {
+    for shape in shapes {
+        if shape.pixels.len() < 3 {
+            return Err(err!("shape too small"));
+        }
         let place = tools::place_shape(image, shape)?;
         new_shapes.push(shape.move_by(place.pos - shape.bb.top_left()).into());
     }
@@ -1966,12 +1989,22 @@ struct CoverageState {
 pub fn cover_image_with_shapes(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &s.images[i];
     let shapes = &s.shapes[i];
+    if shapes.len() > 6 {
+        return Err(err!("too many shapes"));
+    }
+    let pixels_to_cover = image.colors_iter().filter(|&c| c != 0).count();
+    if pixels_to_cover == 0 {
+        return Err(err!("no pixels to cover"));
+    }
+    if pixels_to_cover > image.width * image.height / 2 {
+        return Err(err!("too many pixels to cover"));
+    }
     // We assume it's not a terribly hard problem. But we still allow backtracking.
     let mut state = CoverageState {
         image: image.clone(),
         shapes: shapes.clone(),
         is_covered: vec![vec![false; image.width]; image.height],
-        still_uncovered: image.colors_iter().filter(|&c| c != 0).count(),
+        still_uncovered: pixels_to_cover,
         placements: vec![],
         budget: 1000,
     };

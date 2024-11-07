@@ -226,6 +226,7 @@ impl Image {
     pub fn colors_iter(&self) -> impl Iterator<Item = Color> + '_ {
         (0..self.width * self.height).map(|i| self[(i % self.width, i / self.width)])
     }
+    #[inline]
     pub fn get(&self, x: i32, y: i32) -> Res<Color> {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
             return Err("out of bounds");

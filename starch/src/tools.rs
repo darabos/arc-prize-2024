@@ -470,8 +470,8 @@ pub fn place_shape(image: &Image, shape: &Shape) -> Res<ShapePlacement> {
         pos: Vec2::ZERO,
         match_count: 0,
     };
-    for y in (-shape.bb.height() + 1)..image.height as i32 {
-        for x in (-shape.bb.width() + 1)..image.width as i32 {
+    for y in (-shape.bb.height() + 1)..image.height as i32 - 1 {
+        for x in (-shape.bb.width() + 1)..image.width as i32 - 1 {
             let pos = Vec2 { x, y };
             let mut match_count = 0;
             for Pixel { x, y, color } in shape.cells() {
