@@ -1960,6 +1960,18 @@ pub fn make_common_output_image(s: &mut SolverState) -> Res<()> {
         }
         c
     });
+    let mut any_match = false;
+    for x in 0..new_output_image.width {
+        for y in 0..new_output_image.height {
+            if new_output_image[(x, y)] != 0 {
+                any_match = true;
+                break;
+            }
+        }
+    }
+    if !any_match {
+        return Err(err!("no common output"));
+    }
     let new_output_image = new_output_image.freeze();
     s.images = s.images.iter().map(|_| new_output_image.clone()).collect();
     s.forget_all_lines();

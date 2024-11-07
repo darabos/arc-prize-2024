@@ -259,6 +259,14 @@
     "use_first_shape_save_the_rest",
     "crop_to_shape"
   ],
+  "31aa019c": [
+    "make_common_output_image",
+    "use_colorsets_as_shapes",
+    "order_shapes_by_bb_size_increasing",
+    "use_first_shape_save_the_rest",
+    "grow_flowers_square",
+    "draw_shapes"
+  ],
   "3428a4f5": [
     "split_into_two_images",
     "boolean_with_saved_image_xor",
@@ -286,6 +294,23 @@
   ],
   "4c4377d9": [
     "tile_image"
+  ],
+  "54d9e175": [
+    "use_colorsets_as_shapes",
+    "substates_for_each_color",
+    "filter_shapes_by_color",
+    "grow_flowers_square",
+    "remap_colors_per_output"
+  ],
+  "5582e5ca": [
+    "make_common_output_image",
+    "use_colorsets_as_shapes",
+    "order_shapes_by_weight_increasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "filter_shapes_by_color",
+    "grow_flowers_square",
+    "remap_colors_per_output"
   ],
   "6430c8c4": [
     "split_into_two_images",
@@ -357,6 +382,15 @@
     "grow_flowers_square",
     "remap_colors_per_output"
   ],
+  "aabf363d": [
+    "use_colorsets_as_shapes",
+    "order_shapes_by_weight_increasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "filter_shapes_by_color",
+    "grow_flowers_square",
+    "remap_colors_per_output"
+  ],
   "ae4f1146": [
     "order_shapes_by_bb_size_decreasing",
     "use_first_shape_save_the_rest",
@@ -369,9 +403,26 @@
     "grow_flowers_square",
     "move_shapes_per_output"
   ],
+  "b94a9452": [
+    "remove_grid",
+    "use_colorsets_as_shapes",
+    "order_shapes_by_weight_increasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "grow_flowers_square",
+    "remap_colors_per_output"
+  ],
   "ba97ae07": [
     "use_colorsets_as_shapes",
     "connect_aligned_pixels_in_shapes_8"
+  ],
+  "bda2d7a6": [
+    "order_shapes_by_bb_size_decreasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "filter_shapes_by_color",
+    "grow_flowers_square",
+    "remap_colors_per_output"
   ],
   "be94b721": [
     "order_shapes_by_weight_decreasing",
@@ -411,6 +462,18 @@
     "grow_flowers_square"
   ],
   "d511f180": [
+    "remap_colors_per_output"
+  ],
+  "d5d6de2d": [
+    "filter_shapes_by_color",
+    "recolor_shapes_per_output",
+    "draw_shapes",
+    "use_colorsets_as_shapes",
+    "order_shapes_by_weight_increasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "filter_shapes_by_color",
+    "grow_flowers_square",
     "remap_colors_per_output"
   ],
   "d687bc17": [

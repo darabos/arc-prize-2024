@@ -277,7 +277,7 @@ fn automatic_solver(task: &Task) -> tools::Res<solvers::SolverState> {
         state: solvers::SolverState::new(task).into(),
         next_step: None,
     });
-    let mut budget = 100;
+    let mut budget = 20000;
     while let Some(node) = queue.pop() {
         if budget == 0 {
             break;
