@@ -31,6 +31,9 @@ impl std::fmt::Display for Image {
     }
 }
 
+type Matrix2D = [[i32; 2]; 2];
+pub const IDENTITY: Matrix2D = [[1, 0], [0, 1]];
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct MutImage {
     pub top: usize,
@@ -39,6 +42,8 @@ pub struct MutImage {
     pub height: usize,
     pub full_width: usize,
     pub full_height: usize,
+    /// A 2x2 matrix of -1/0/1. Used to describe rotations and mirroring.
+    pub transformation: Matrix2D,
     pixels: Vec<Color>,
 }
 
@@ -50,6 +55,7 @@ pub struct Image {
     pub height: usize,
     pub full_width: usize,
     pub full_height: usize,
+    pub transformation: Matrix2D,
     pixels: Rc<Vec<Color>>,
 }
 
@@ -63,6 +69,7 @@ impl MutImage {
             full_width: width,
             full_height: height,
             pixels: vec![0; width * height],
+            transformation: IDENTITY,
         }
     }
     pub fn freeze(self) -> Image {
@@ -74,6 +81,7 @@ impl MutImage {
             full_width: self.full_width,
             full_height: self.full_height,
             pixels: Rc::new(self.pixels),
+            transformation: self.transformation,
         }
     }
     pub fn update(&mut self, f: impl Fn(usize, usize, Color) -> Color) {
@@ -186,9 +194,12 @@ impl Image {
             full_width: self.full_width,
             full_height: self.full_height,
             pixels: (*self.pixels).clone(),
+            transformation: self.transformation,
         }
     }
     pub fn subimage(&self, left: usize, top: usize, width: usize, height: usize) -> Image {
+        let tleft =
+            self.transformation[0][0] * left as i32 + self.transformation[0][1] * top as i32;
         assert!(left + width <= self.width);
         assert!(top + height <= self.height);
         Image {
@@ -199,6 +210,7 @@ impl Image {
             full_width: self.full_width,
             full_height: self.full_height,
             pixels: self.pixels.clone(),
+            transformation: self.transformation,
         }
     }
     pub fn is_zoomed(&self) -> bool {
@@ -216,6 +228,7 @@ impl Image {
             full_width: self.full_width,
             full_height: self.full_height,
             pixels: self.pixels.clone(),
+            transformation: self.transformation,
         }
     }
     pub fn is_empty(&self) -> bool {
