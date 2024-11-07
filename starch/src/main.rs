@@ -3,8 +3,8 @@ use indicatif::ProgressBar;
 use rayon::prelude::*;
 use serde::{self, ser::SerializeMap};
 use serde_json;
-use std::collections::HashMap as Map;
 use std::fs;
+use std::{collections::HashMap as Map, rc::Rc};
 mod image;
 mod shape;
 mod solvers;
@@ -249,7 +249,7 @@ impl SolutionsHeuristics {
 
 struct SearchNode {
     score: f32,
-    state: solvers::SolverState,
+    state: Rc<solvers::SolverState>,
     next_step: Option<&'static solvers::SolverStep>,
 }
 impl Eq for SearchNode {}
@@ -274,7 +274,7 @@ fn automatic_solver(task: &Task) -> tools::Res<solvers::SolverState> {
     let mut queue = std::collections::BinaryHeap::new();
     queue.push(SearchNode {
         score: 0.,
-        state: solvers::SolverState::new(task),
+        state: solvers::SolverState::new(task).into(),
         next_step: None,
     });
     let mut budget = 100;
@@ -283,7 +283,7 @@ fn automatic_solver(task: &Task) -> tools::Res<solvers::SolverState> {
             break;
         }
         budget -= 1;
-        let mut state = node.state;
+        let mut state = (*node.state).clone();
         if let Some(step) = node.next_step {
             if state.run_step_safe(step).is_ok() {
                 // if let Err(error) = s.validate() {
@@ -301,6 +301,7 @@ fn automatic_solver(task: &Task) -> tools::Res<solvers::SolverState> {
         // if node.next_step.is_none() {
         //     println!("candidates: {:?}", steps);
         // }
+        let state_rc = Rc::new(state);
         for (score, step) in steps {
             // if node.next_step.is_none() {
             //     println!("adding {} with score {}", step.name(), score);
@@ -310,7 +311,7 @@ fn automatic_solver(task: &Task) -> tools::Res<solvers::SolverState> {
             // }
             queue.push(SearchNode {
                 score,
-                state: state.clone(),
+                state: state_rc.clone(),
                 next_step: Some(step),
             });
         }
