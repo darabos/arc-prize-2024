@@ -1,6 +1,7 @@
 use colored::Colorize;
 use indicatif::ProgressBar;
 use rayon::prelude::*;
+use serde::{self, ser::SerializeMap};
 use serde_json;
 use std::collections::HashMap as Map;
 use std::fs;
@@ -119,27 +120,192 @@ fn set_bar_style(bar: &ProgressBar) {
     );
 }
 
+type StepCounts = Map<String, usize>;
+/// The step counts given some prefix, and pointers to StepTrees for longer prefixes.
+struct StepTree {
+    counts: StepCounts,
+    children: Map<String, StepTree>,
+}
+impl serde::Serialize for StepTree {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("counts", &self.counts)?;
+        map.serialize_entry("children", &self.children)?;
+        map.end()
+    }
+}
+struct SolutionsHeuristics {
+    step_tree: StepTree,
+    step_costs: Map<String, f32>,
+}
+impl StepTree {
+    fn get_counts(&self, prefix: &[String]) -> StepCounts {
+        let mut counts = self.counts.clone();
+        if let Some(last) = prefix.last() {
+            if let Some(child) = self.children.get(last) {
+                for (k, v) in child.get_counts(&prefix[..prefix.len() - 1]) {
+                    *counts.entry(k).or_insert(0) += v;
+                }
+            }
+        }
+        counts
+    }
+}
+
+type ScoredStep = (f32, &'static solvers::SolverStep);
+type ScoredSteps = Vec<ScoredStep>;
+impl SolutionsHeuristics {
+    fn get_candidates(&self, state: &solvers::SolverState) -> ScoredSteps {
+        let step_list: Vec<String> = vec!["START".to_string()]
+            .into_iter()
+            .chain(state.steps.iter().map(|step| step.to_string()))
+            .collect();
+        // println!("{:?}", step_list);
+        let counts = self.step_tree.get_counts(&step_list);
+        let state_score = self.state_score(state);
+        // println!("{:?}", counts);
+        solvers::ALL_STEPS
+            .iter()
+            .map(|step| {
+                let count = counts.get(step.name()).copied().unwrap_or(0) as f32;
+                let cost = self.step_costs.get(step.name()).copied().unwrap_or(0.);
+                let use_count = state
+                    .steps
+                    .iter()
+                    .filter(|&&n| std::ptr::eq(n, step))
+                    .count() as f32;
+                (count + state_score - cost - use_count * 10., step)
+            })
+            .collect()
+    }
+    fn state_score(&self, state: &solvers::SolverState) -> f32 {
+        let mut score = 0.;
+        score -= state.steps.len() as f32;
+        score
+    }
+    fn load() -> Self {
+        let contents = fs::read_to_string("../solutions.json")
+            .expect("Should have been able to read the file");
+        let data: serde_json::Value =
+            serde_json::from_str(&contents).expect("Should have been able to parse the json");
+        let solutions = data.as_object().expect("Should have been an object");
+        let mut step_tree = StepTree {
+            counts: Map::new(),
+            children: Map::new(),
+        };
+        for (_id, steps) in solutions {
+            // Load strings.
+            let steps = steps
+                .as_array()
+                .expect("Should have been an array")
+                .iter()
+                .map(|step| step.as_str().expect("Should have been a string"))
+                .collect::<Vec<&str>>();
+            // println!("{}: {:?}", key, steps);
+            for step_index in 0..steps.len() {
+                let current_step = &steps[step_index];
+                let mut st = &mut step_tree;
+                *st.counts.entry(current_step.to_string()).or_insert(0) += 1;
+                for prefix_length in 1..=step_index {
+                    let step = &steps[step_index - prefix_length];
+                    st = st.children.entry(step.to_string()).or_insert(StepTree {
+                        counts: Map::new(),
+                        children: Map::new(),
+                    });
+                    *st.counts.entry(current_step.to_string()).or_insert(0) += 1;
+                }
+                st = st.children.entry("START".to_owned()).or_insert(StepTree {
+                    counts: Map::new(),
+                    children: Map::new(),
+                });
+                *st.counts.entry(current_step.to_string()).or_insert(0) += 1;
+            }
+        }
+        // let step_tree_json = serde_json::to_string_pretty(&step_tree)
+        //     .expect("Should have been able to serialize the json");
+        // println!("{}", step_tree_json);
+        let mut step_costs = Map::new();
+        for (name, cost) in solvers::STEP_COSTS {
+            step_costs.insert(name.to_string(), *cost as f32);
+        }
+        Self {
+            step_tree,
+            step_costs,
+        }
+    }
+}
+
+struct SearchNode {
+    score: f32,
+    state: solvers::SolverState,
+    next_step: Option<&'static solvers::SolverStep>,
+}
+impl Eq for SearchNode {}
+impl PartialEq for SearchNode {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+impl PartialOrd for SearchNode {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for SearchNode {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.score.partial_cmp(&other.score).unwrap()
+    }
+}
+
 fn automatic_solver(task: &Task) -> tools::Res<solvers::SolverState> {
-    let mut queue = std::collections::VecDeque::new();
-    queue.push_back(solvers::SolverState::new(task));
+    let heur = SolutionsHeuristics::load();
+    let mut queue = std::collections::BinaryHeap::new();
+    queue.push(SearchNode {
+        score: 0.,
+        state: solvers::SolverState::new(task),
+        next_step: None,
+    });
     let mut budget = 100;
-    while let Some(state) = queue.pop_front() {
+    while let Some(node) = queue.pop() {
         if budget == 0 {
             break;
         }
         budget -= 1;
-        for step in solvers::ALL_STEPS {
-            let mut s = state.clone();
-            if s.run_step_safe(step).is_ok() {
-                if let Err(error) = s.validate() {
-                    println!("{} after {}", error.red(), step);
+        let mut state = node.state;
+        if let Some(step) = node.next_step {
+            if state.run_step_safe(step).is_ok() {
+                // if let Err(error) = s.validate() {
+                //     println!("{} after {}", error.red(), step);
+                // }
+                if state.correct_on_train() {
+                    return Ok(state);
                 }
-                if s.correct_on_train() {
-                    return Ok(s);
-                }
-                queue.push_back(s);
             }
+            // } else {
+            //     println!("{:?}", heur.step_tree.counts);
         }
+        // state.print_steps();
+        let steps = heur.get_candidates(&state);
+        // if node.next_step.is_none() {
+        //     println!("candidates: {:?}", steps);
+        // }
+        for (score, step) in steps {
+            // if node.next_step.is_none() {
+            //     println!("adding {} with score {}", step.name(), score);
+            // }
+            // if score > 0. {
+            // println!("{}: {}", step.name(), score);
+            // }
+            queue.push(SearchNode {
+                score,
+                state: state.clone(),
+                next_step: Some(step),
+            });
+        }
+        // println!("{} budget remains, {} items in queue", budget, queue.len());
     }
     Err("No solution found")
 }
@@ -148,6 +314,7 @@ fn automatic_solver(task: &Task) -> tools::Res<solvers::SolverState> {
 fn evaluate_automatic_solver() {
     let tasks = read_arc_file("../arc-agi_training_challenges.json");
     let task_names: Vec<&String> = tasks.iter().map(|(name, _)| name).collect();
+    // let task_names = task_names.into_iter().take(1).collect::<Vec<&String>>();
     let bar = ProgressBar::new(tasks.len() as u64);
     set_bar_style(&bar);
     let mutex = std::sync::Arc::new(std::sync::Mutex::new(()));

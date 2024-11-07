@@ -458,6 +458,14 @@ pub enum SolverStep {
     Each(&'static str, fn(&mut SolverState, usize) -> Res<()>),
     All(&'static str, fn(&mut SolverState) -> Res<()>),
 }
+impl SolverStep {
+    pub fn name(&self) -> &str {
+        match self {
+            Each(name, _func) => name,
+            All(name, _func) => name,
+        }
+    }
+}
 macro_rules! step_all {
     ($func:ident) => {
         All(stringify!($func), $func)
@@ -471,15 +479,12 @@ macro_rules! step_each {
 use SolverStep::*;
 impl std::fmt::Display for SolverStep {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Each(name, _func) => write!(f, "{}", name),
-            All(name, _func) => write!(f, "{}", name),
-        }
+        write!(f, "{}", self.name())
     }
 }
 impl std::fmt::Debug for SolverStep {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{}", self.name())
     }
 }
 pub const ALL_STEPS: &[SolverStep] = &[
@@ -908,7 +913,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
 ];
 
 /// Relative costs of different steps. Unlisted steps have a cost of 1.
-const STEP_COSTS: &[(&str, usize)] = &[
+pub const STEP_COSTS: &[(&str, usize)] = &[
     ("connect_aligned_pixels_in_shapes_8", 8),
     ("connect_aligned_pixels_in_shapes_4", 5),
     ("refresh_from_image", 5),

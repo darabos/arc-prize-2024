@@ -1,0 +1,451 @@
+{
+  "007bbfb7": [
+    "scale_up_image",
+    "save_image_and_load_previous",
+    "tile_image",
+    "boolean_with_saved_image_and"
+  ],
+  "00d62c1b": [
+    "filter_shapes_by_color",
+    "recolor_shapes_per_output",
+    "draw_shapes"
+  ],
+  "025d127b": [
+    "pick_bottom_right_shape_per_color",
+    "load_shapes_except_current_shapes",
+    "discard_background_shapes",
+    "move_shapes_per_output"
+  ],
+  "045e512c": [
+    "allow_diagonals_in_shapes",
+    "discard_background_shapes",
+    "order_shapes_by_weight_decreasing",
+    "save_first_shape_use_the_rest",
+    "substates_for_each_shape",
+    "recolor_saved_shapes_to_current_shape",
+    "move_saved_shape_to_cover_current_shape_max_8",
+    "repeat_last_move_and_draw"
+  ],
+  "0520fde7": [
+    "split_into_two_images",
+    "boolean_with_saved_image_and",
+    "recolor_image_per_output"
+  ],
+  "05269061": [
+    "use_image_without_background_as_shape",
+    "repeat_shapes_on_lattice_per_output"
+  ],
+  "05f2a901": [
+    "use_first_shape_save_the_rest",
+    "move_shapes_to_touch_saved_shape"
+  ],
+  "06df4c85": [
+    "remove_grid",
+    "use_colorsets_as_shapes",
+    "connect_aligned_pixels_in_shapes_4",
+    "restore_grid"
+  ],
+  "08ed6ac7": [
+    "recolor_shapes_per_output",
+    "draw_shape_where_non_empty"
+  ],
+  "09629e4f": [
+    "select_grid_cell_least_filled_in",
+    "scale_up_image_add_grid"
+  ],
+  "0962bcdd": [
+    "use_colorsets_as_shapes",
+    "order_shapes_by_weight_increasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "filter_shapes_by_color",
+    "grow_flowers_square"
+  ],
+  "0a938d79": [
+    "rotate_to_landscape_ccw",
+    "repeat_shapes_vertically",
+    "draw_shapes",
+    "refresh_from_image",
+    "allow_background_color_shapes",
+    "follow_shape_sequence_per_output",
+    "draw_shapes"
+  ],
+  "0b148d64": [
+    "select_grid_cell_outlier_by_color"
+  ],
+  "0ca9ddb6": [
+    "use_colorsets_as_shapes",
+    "substates_for_each_color",
+    "filter_shapes_by_color",
+    "grow_flowers_square"
+  ],
+  "0d3d703e": [
+    "remap_colors_per_output"
+  ],
+  "0dfd9992": [
+    "use_image_without_background_as_shape",
+    "substates_for_each_image",
+    "repeat_shapes_on_lattice_per_image"
+  ],
+  "0e206a2e": [
+    "use_multicolor_shapes",
+    "discard_small_shapes",
+    "erase_shapes",
+    "place_shapes_best_match_with_all_transforms",
+    "draw_shapes"
+  ],
+  "10fcaaa3": [
+    "tile_image",
+    "refresh_from_image",
+    "use_colorsets_as_shapes",
+    "grow_flowers_square"
+  ],
+  "11852cab": [
+    "keep_only_border_lines",
+    "remove_grid",
+    "make_image_rotationally_symmetrical",
+    "restore_grid"
+  ],
+  "1190e5a7": [
+    "deduplicate_horizontally",
+    "deduplicate_vertically",
+    "refresh_from_image",
+    "remove_grid"
+  ],
+  "137eaa0f": [
+    "allow_diagonals_in_multicolor_shapes",
+    "make_common_output_image",
+    "place_shapes_best_match_with_just_translation",
+    "draw_shapes"
+  ],
+  "150deff5": [
+    "take_all_shapes_from_output",
+    "cover_image_with_shapes",
+    "draw_shapes"
+  ],
+  "178fcbfb": [
+    "dots_to_lines_per_output"
+  ],
+  "1a07d186": [
+    "delete_noise",
+    "refresh_from_image",
+    "substates_for_each_image",
+    "substates_for_each_color",
+    "filter_shapes_by_color",
+    "order_shapes_by_weight_decreasing",
+    "save_first_shape_use_the_rest",
+    "move_shapes_to_touch_saved_shape"
+  ],
+  "1b2d62fb": [
+    "split_into_two_images",
+    "boolean_with_saved_image_nand",
+    "recolor_image_per_output"
+  ],
+  "1b60fb0c": [
+    "zoom_to_content",
+    "extend_zoom_up_left_until_square",
+    "make_image_rotationally_symmetrical",
+    "select_previous_color",
+    "recolor_image_to_selected_color",
+    "draw_shapes",
+    "reset_zoom",
+    "remap_colors_per_output"
+  ],
+  "1bfc4729": [
+    "use_relative_colors",
+    "make_common_output_image"
+  ],
+  "1c786137": [
+    "use_colorsets_as_shapes",
+    "order_shapes_by_bb_size_increasing",
+    "use_first_shape_save_the_rest",
+    "crop_to_shape",
+    "inset_by_one"
+  ],
+  "1caeab9d": [
+    "use_colorsets_as_shapes",
+    "save_first_shape_use_the_rest",
+    "erase_shapes",
+    "align_shapes_to_saved_shape_horizontal",
+    "draw_shapes"
+  ],
+  "1cf80156": [
+    "remove_grid"
+  ],
+  "1e0a9b12": [
+    "drop_all_pixels_down"
+  ],
+  "1e32b0e9": [
+    "order_shapes_by_bb_size_decreasing",
+    "order_colors_by_shapes",
+    "select_grid_cell_most_filled_in",
+    "tile_image_add_grid",
+    "recolor_image_to_selected_color",
+    "draw_saved_image"
+  ],
+  "1f0c79e5": [
+    "order_colors_by_frequency_across_images_ascending",
+    "use_multicolor_shapes",
+    "recolor_shapes_to_selected_color",
+    "save_shapes_and_load_previous",
+    "select_next_color",
+    "filter_shapes_by_color",
+    "atomize_shapes",
+    "substates_for_each_shape",
+    "move_saved_shape_to_cover_current_shape_max_diagonally",
+    "repeat_last_move_and_draw"
+  ],
+  "1f642eb9": [
+    "order_shapes_by_weight_decreasing",
+    "save_first_shape_use_the_rest",
+    "move_current_shape_to_be_inside_saved_shape_min_4",
+    "draw_shapes"
+  ],
+  "1f85a75f": [
+    "discard_small_shapes",
+    "crop_to_shape"
+  ],
+  "1f876c06": [
+    "use_colorsets_as_shapes",
+    "connect_aligned_pixels_in_shapes_8"
+  ],
+  "2013d3e2": [
+    "remove_grid",
+    "crop_to_top_left_quadrant"
+  ],
+  "2204b7a8": [
+    "use_colorsets_as_shapes",
+    "order_colors_by_frequency_across_images_descending",
+    "order_shapes_by_color",
+    "use_first_shape_save_the_rest",
+    "atomize_shapes",
+    "recolor_shapes_to_nearest_saved_shape",
+    "draw_shapes"
+  ],
+  "22168020": [
+    "use_colorsets_as_shapes",
+    "connect_aligned_pixels_in_shapes_4"
+  ],
+  "22eb0ac0": [
+    "use_colorsets_as_shapes",
+    "connect_aligned_pixels_in_shapes_4"
+  ],
+  "23b5c85d": [
+    "order_shapes_by_bb_size_increasing",
+    "crop_to_shape"
+  ],
+  "25ff71a9": [
+    "move_shapes_per_output"
+  ],
+  "272f95fa": [
+    "allow_background_color_shapes",
+    "recolor_shapes_per_output",
+    "draw_shapes"
+  ],
+  "28bf18c6": [
+    "remove_grid",
+    "tile_image"
+  ],
+  "29ec7d0e": [
+    "use_image_without_background_as_shape",
+    "substates_for_each_image",
+    "repeat_shapes_on_lattice_per_image"
+  ],
+  "2dc579da": [
+    "select_grid_cell_outlier_by_color"
+  ],
+  "2dee498d": [
+    "order_shapes_by_bb_size_decreasing",
+    "use_first_shape_save_the_rest",
+    "crop_to_shape"
+  ],
+  "3428a4f5": [
+    "split_into_two_images",
+    "boolean_with_saved_image_xor",
+    "recolor_image_per_output"
+  ],
+  "3618c87e": [
+    "filter_shapes_by_color",
+    "move_shapes_per_output"
+  ],
+  "39a8645d": [
+    "order_shapes_by_bb_size_decreasing",
+    "use_first_shape_save_the_rest",
+    "crop_to_shape"
+  ],
+  "4258a5f9": [
+    "grow_flowers_square"
+  ],
+  "48d8fb45": [
+    "order_shapes_by_bb_size_decreasing",
+    "use_first_shape_save_the_rest",
+    "crop_to_shape"
+  ],
+  "496994bd": [
+    "make_image_symmetrical"
+  ],
+  "4c4377d9": [
+    "tile_image"
+  ],
+  "6430c8c4": [
+    "split_into_two_images",
+    "boolean_with_saved_image_nand",
+    "recolor_image_per_output"
+  ],
+  "6d0aefbc": [
+    "tile_image"
+  ],
+  "746b3537": [
+    "deduplicate_horizontally",
+    "deduplicate_vertically"
+  ],
+  "810b9b61": [
+    "filter_shapes_by_color",
+    "grow_flowers_square",
+    "draw_shapes"
+  ],
+  "8403a5d5": [
+    "use_relative_colors",
+    "grow_flowers_square"
+  ],
+  "90c28cc7": [
+    "deduplicate_horizontally",
+    "deduplicate_vertically",
+    "refresh_from_image",
+    "remove_grid"
+  ],
+  "913fb3ed": [
+    "use_colorsets_as_shapes",
+    "substates_for_each_color",
+    "filter_shapes_by_color",
+    "grow_flowers_square"
+  ],
+  "9172f3a0": [
+    "scale_up_image"
+  ],
+  "963e52fc": [
+    "tile_image"
+  ],
+  "99b1bc43": [
+    "split_into_two_images",
+    "boolean_with_saved_image_xor",
+    "recolor_image_per_output"
+  ],
+  "9ecd008a": [
+    "make_image_rotationally_symmetrical",
+    "crop_to_shape"
+  ],
+  "a416b8f3": [
+    "tile_image"
+  ],
+  "a5313dff": [
+    "filter_shapes_by_color",
+    "recolor_shapes_per_output",
+    "draw_shapes"
+  ],
+  "a79310a0": [
+    "grow_flowers_square",
+    "remap_colors_per_output"
+  ],
+  "a9f96cdd": [
+    "grow_flowers_square",
+    "remap_colors_per_output"
+  ],
+  "ae4f1146": [
+    "order_shapes_by_bb_size_decreasing",
+    "use_first_shape_save_the_rest",
+    "crop_to_shape"
+  ],
+  "b1948b0a": [
+    "remap_colors_per_output"
+  ],
+  "b60334d2": [
+    "grow_flowers_square",
+    "move_shapes_per_output"
+  ],
+  "ba97ae07": [
+    "use_colorsets_as_shapes",
+    "connect_aligned_pixels_in_shapes_8"
+  ],
+  "be94b721": [
+    "order_shapes_by_weight_decreasing",
+    "crop_to_shape"
+  ],
+  "c3f564a4": [
+    "use_image_without_background_as_shape",
+    "substates_for_each_image",
+    "repeat_shapes_on_lattice_per_image"
+  ],
+  "c59eb873": [
+    "scale_up_image"
+  ],
+  "c8f0f002": [
+    "remap_colors_per_output"
+  ],
+  "ce22a75a": [
+    "grow_flowers_square",
+    "recolor_image_per_output"
+  ],
+  "ce4f8723": [
+    "split_into_two_images",
+    "boolean_with_saved_image_or",
+    "recolor_image_per_output"
+  ],
+  "d10ecb37": [
+    "make_common_output_image",
+    "draw_saved_image"
+  ],
+  "d364b489": [
+    "use_colorsets_as_shapes",
+    "grow_flowers_square"
+  ],
+  "d511f180": [
+    "remap_colors_per_output"
+  ],
+  "d687bc17": [
+    "delete_noise",
+    "refresh_from_image",
+    "substates_for_each_image",
+    "substates_for_each_color",
+    "filter_shapes_by_color",
+    "order_shapes_by_weight_decreasing",
+    "save_first_shape_use_the_rest",
+    "move_shapes_to_touch_saved_shape"
+  ],
+  "dc1df850": [
+    "filter_shapes_by_color",
+    "grow_flowers_square"
+  ],
+  "ded97339": [
+    "use_colorsets_as_shapes",
+    "connect_aligned_pixels_in_shapes_4"
+  ],
+  "e98196ab": [
+    "split_into_two_images",
+    "draw_saved_image"
+  ],
+  "e9afcf9a": [
+    "order_shapes_from_top_to_bottom",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "make_common_output_image"
+  ],
+  "ea32f347": [
+    "order_shapes_by_weight_increasing",
+    "recolor_shapes_per_output",
+    "draw_shapes"
+  ],
+  "eb5a1d5d": [
+    "deduplicate_horizontally",
+    "deduplicate_vertically"
+  ],
+  "f25fbde4": [
+    "remove_grid",
+    "scale_up_image"
+  ],
+  "f2829549": [
+    "split_into_two_images",
+    "boolean_with_saved_image_nand",
+    "recolor_image_per_output"
+  ]
+}
