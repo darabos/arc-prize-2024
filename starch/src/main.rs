@@ -12,6 +12,13 @@ mod steps;
 mod tools;
 use tools::{Example, Image, MutImage, Task};
 
+static SEARCH_BUDGET: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+    std::env::var("SEARCH_BUDGET")
+        .unwrap_or(1000.to_string())
+        .parse()
+        .expect("Should have been a number")
+});
+
 pub fn parse_image(image: &serde_json::Value) -> Image {
     let vecvec: Vec<Vec<tools::Color>> = image
         .as_array()
@@ -147,6 +154,20 @@ pub fn save_submission(state: &solvers::SolverState) {
     let new_contents =
         serde_json::to_string_pretty(&data).expect("Should have been able to serialize the json");
     fs::write(file_path, new_contents).expect("Should have been able to write the file");
+}
+
+pub fn read_list_of_solved_tasks() -> std::collections::HashSet<String> {
+    let file_path = "../submission.json";
+    let data: serde_json::Value =
+        if fs::exists(file_path).expect("Should have been able to check if the file exists") {
+            let contents =
+                fs::read_to_string(file_path).expect("Should have been able to read the file");
+            serde_json::from_str(&contents).expect("Should have been able to parse the json")
+        } else {
+            serde_json::Value::Object(serde_json::Map::new())
+        };
+    let data = data.as_object().expect("Should have been an object");
+    data.keys().map(|key| key.clone()).collect()
 }
 
 fn set_bar_style(bar: &ProgressBar) {
@@ -304,7 +325,7 @@ fn automatic_solver(task: &Task) -> tools::Res<solvers::SolverState> {
         state: solvers::SolverState::new(task).into(),
         next_step: None,
     });
-    let mut budget = 1000;
+    let mut budget = *SEARCH_BUDGET;
     while let Some(node) = queue.pop() {
         if budget == 0 {
             break;
@@ -393,8 +414,10 @@ fn evaluate_automatic_solver() {
 #[allow(dead_code)]
 fn submit_with_automatic_solver() {
     let tasks = read_arc_file("../arc-agi_test_challenges.json");
+    let already_solved = read_list_of_solved_tasks();
     let tasks = tasks
         .into_iter()
+        .filter(|(k, _)| !already_solved.contains(k))
         .collect::<Vec<(String, serde_json::Value)>>();
     let bar = ProgressBar::new(tasks.len() as u64);
     set_bar_style(&bar);
