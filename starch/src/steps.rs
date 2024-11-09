@@ -1999,10 +1999,23 @@ pub fn zoom_to_content(s: &mut SolverState, i: usize) -> Res<()> {
     s.images[i] = image
         .sub_image(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
         .into();
+    s.shapes[i] = s.shapes[i]
+        .iter()
+        .map(|shape| {
+            shape
+                .move_by(Vec2 {
+                    x: -(min_x as i32),
+                    y: -(min_y as i32),
+                })
+                .into()
+        })
+        .collect();
     Ok(())
 }
+
 pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()> {
     let image = &s.images[i];
+    // TODO: Do it in SolverState.
     if image.width < image.height {
         match &image.sub_image {
             None => Err(err!("no base image")),
@@ -2015,6 +2028,10 @@ pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()
                     return Err("base image too small");
                 }
                 let new_left = left - (image.height - image.width);
+                let shift = Vec2 {
+                    x: *left as i32 - new_left as i32,
+                    y: 0,
+                };
                 s.images[i] = Image {
                     sub_image: Some(SubImageSpec {
                         left: new_left,
@@ -2026,6 +2043,10 @@ pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()
                     pixels: vec![],
                 }
                 .into();
+                s.shapes[i] = s.shapes[i]
+                    .iter()
+                    .map(|shape| shape.move_by(shift).into())
+                    .collect();
                 Ok(())
             }
         }
@@ -2041,6 +2062,10 @@ pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()
                     return Err("base image too small");
                 }
                 let new_top = top - (image.width - image.height);
+                let shift = Vec2 {
+                    x: 0,
+                    y: *top as i32 - new_top as i32,
+                };
                 s.images[i] = Image {
                     sub_image: Some(SubImageSpec {
                         left: *left,
@@ -2052,6 +2077,10 @@ pub fn extend_zoom_up_left_until_square(s: &mut SolverState, i: usize) -> Res<()
                     pixels: image.pixels.clone(),
                 }
                 .into();
+                s.shapes[i] = s.shapes[i]
+                    .iter()
+                    .map(|shape| shape.move_by(shift).into())
+                    .collect();
                 Ok(())
             }
         }

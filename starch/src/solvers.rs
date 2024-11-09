@@ -722,6 +722,7 @@ pub const SOLVERS: &[&[SolverStep]] = &[
         step_each!(recolor_image_to_selected_color),
         step_each!(draw_shapes),
         step_all!(print_images_step),
+        step_each!(reset_camera),
         step_all!(remap_colors_per_output),
         step_all!(print_images_step),
     ],
