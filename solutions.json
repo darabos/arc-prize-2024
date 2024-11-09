@@ -281,8 +281,23 @@
     "use_first_shape_save_the_rest",
     "crop_to_shape"
   ],
+  "3ac3eb23": [
+    "use_colorsets_as_shapes",
+    "order_shapes_by_weight_increasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "filter_shapes_by_color",
+    "grow_flowers_square"
+  ],
   "4258a5f9": [
     "grow_flowers_square"
+  ],
+  "445eab21": [
+    "use_colorsets_as_shapes",
+    "order_shapes_by_weight_increasing",
+    "order_colors_by_shapes",
+    "use_relative_colors",
+    "make_common_output_image"
   ],
   "48d8fb45": [
     "order_shapes_by_bb_size_decreasing",

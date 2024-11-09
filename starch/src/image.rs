@@ -253,6 +253,15 @@ impl Image {
         }
         image.freeze()
     }
+    pub fn to_vecvec(&self) -> Vec<Vec<Color>> {
+        let mut vecvec = vec![vec![0; self.width]; self.height];
+        for y in 0..self.height {
+            for x in 0..self.width {
+                vecvec[y][x] = self[(x, y)];
+            }
+        }
+        vecvec
+    }
 
     pub fn crop(&self, left: i32, top: i32, width: i32, height: i32) -> Image {
         assert!(left >= 0);

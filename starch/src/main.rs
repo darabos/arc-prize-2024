@@ -40,25 +40,24 @@ pub fn parse_example(example: &serde_json::Value) -> Example {
     Example { input, output }
 }
 
-pub fn parse_task(id: &str, task: &serde_json::Value) -> (Task, Vec<Image>) {
+pub fn parse_task(id: &str, task: &serde_json::Value) -> Task {
     let train = task["train"].as_array().expect("Should have been an array");
     let train = train.iter().map(|example| parse_example(example)).collect();
     let test = task["test"].as_array().expect("Should have been an array");
     let test = test.iter().map(|example| parse_example(example)).collect();
-    let ref_images: Vec<Image> = task["solution"]
+    Task {
+        id: id.into(),
+        train,
+        test,
+    }
+}
+pub fn parse_ref_images(task: &serde_json::Value) -> Vec<Image> {
+    task["solution"]
         .as_array()
         .expect("Should have been an array")
         .iter()
         .map(|image| parse_image(image))
-        .collect();
-    (
-        Task {
-            id: id.into(),
-            train,
-            test,
-        },
-        ref_images,
-    )
+        .collect()
 }
 
 pub fn read_arc_file(file_path: &str) -> serde_json::Map<String, serde_json::Value> {
@@ -92,6 +91,7 @@ pub fn read_files() -> Vec<(String, serde_json::Value)> {
 }
 
 pub fn save_solution(file_path: &str, state: &solvers::SolverState) {
+    save_submission(state);
     let mut data: serde_json::Value =
         if fs::exists(file_path).expect("Should have been able to check if the file exists") {
             let contents =
@@ -115,6 +115,35 @@ pub fn save_solution(file_path: &str, state: &solvers::SolverState) {
         }
     }
     data.insert(key.clone(), serde_json::json!(step_list));
+    let new_contents =
+        serde_json::to_string_pretty(&data).expect("Should have been able to serialize the json");
+    fs::write(file_path, new_contents).expect("Should have been able to write the file");
+}
+
+pub fn save_submission(state: &solvers::SolverState) {
+    let file_path = "../submission.json";
+    let mut data: serde_json::Value =
+        if fs::exists(file_path).expect("Should have been able to check if the file exists") {
+            let contents =
+                fs::read_to_string(file_path).expect("Should have been able to read the file");
+            serde_json::from_str(&contents).expect("Should have been able to parse the json")
+        } else {
+            serde_json::Value::Object(serde_json::Map::new())
+        };
+    let data = data.as_object_mut().expect("Should have been an object");
+    let key = &state.task.id;
+    let examples: Vec<Example> = state.get_results()[state.task.train.len()..].to_vec();
+    let images: Vec<Image> = examples
+        .into_iter()
+        .map(|image| image.output)
+        .collect::<Vec<Image>>();
+    let solutions: Vec<Vec<Vec<tools::Color>>> =
+        images.into_iter().map(|image| image.to_vecvec()).collect();
+    let attempts: Vec<Map<&str, Vec<Vec<tools::Color>>>> = solutions
+        .into_iter()
+        .map(|solution| Map::from([("attempt_1", solution.clone()), ("attempt_2", solution)]))
+        .collect();
+    data.insert(key.clone(), serde_json::json!(attempts));
     let new_contents =
         serde_json::to_string_pretty(&data).expect("Should have been able to serialize the json");
     fs::write(file_path, new_contents).expect("Should have been able to write the file");
@@ -172,10 +201,8 @@ impl SolutionsHeuristics {
             .into_iter()
             .chain(state.steps.iter().map(|step| step.to_string()))
             .collect();
-        // println!("{:?}", step_list);
         let counts = self.step_tree.get_counts(&step_list);
         let state_score = self.state_score(state);
-        // println!("{:?}", counts);
         solvers::ALL_STEPS
             .iter()
             .map(|step| {
@@ -329,7 +356,8 @@ fn evaluate_automatic_solver() {
     let correct: usize = tasks
         .par_iter()
         .map(|(name, value)| {
-            let (task, ref_images) = parse_task(name, value);
+            let task = parse_task(name, value);
+            let ref_images = parse_ref_images(value);
             bar.inc(1);
             if let Ok(state) = automatic_solver(&task) {
                 state.print_steps();
@@ -363,6 +391,34 @@ fn evaluate_automatic_solver() {
 }
 
 #[allow(dead_code)]
+fn submit_with_automatic_solver() {
+    let tasks = read_arc_file("../arc-agi_test_challenges.json");
+    let tasks = tasks
+        .into_iter()
+        .collect::<Vec<(String, serde_json::Value)>>();
+    let bar = ProgressBar::new(tasks.len() as u64);
+    set_bar_style(&bar);
+    let mutex = std::sync::Arc::new(std::sync::Mutex::new(()));
+    let found: usize = tasks
+        .par_iter()
+        .map(|(name, value)| {
+            let task = parse_task(name, value);
+            bar.inc(1);
+            if let Ok(state) = automatic_solver(&task) {
+                state.print_steps();
+                let _lock = mutex.lock().unwrap();
+                save_solution("../solutions.json", &state);
+                1
+            } else {
+                0
+            }
+        })
+        .sum();
+    bar.finish();
+    println!("Found {} possible solutions.", found);
+}
+
+#[allow(dead_code)]
 fn evaluate_manual_solvers() {
     let tasks = read_files();
     let mut expected_correct: Vec<&str> = "007bbfb7 00d62c1b 025d127b 045e512c 0520fde7 05269061 05f2a901 06df4c85 08ed6ac7 09629e4f 0962bcdd 0a938d79 0b148d64 0ca9ddb6 0d3d703e 0dfd9992 0e206a2e 10fcaaa3 11852cab 1190e5a7 137eaa0f 150deff5 178fcbfb 1a07d186 1b2d62fb 1b60fb0c 1bfc4729 1c786137 1caeab9d 1cf80156 1e0a9b12 1e32b0e9 1f0c79e5 1f642eb9 1f85a75f 1f876c06 2013d3e2 2204b7a8 22168020 22eb0ac0 25ff71a9 29ec7d0e 2dc579da 2dee498d 3428a4f5 39a8645d 4258a5f9 48d8fb45 4c4377d9 6430c8c4 6d0aefbc 8403a5d5 90c28cc7 913fb3ed 963e52fc 99b1bc43 a416b8f3 a5313dff ae4f1146 b1948b0a ba97ae07 be94b721 c3f564a4 c8f0f002 ce4f8723 d364b489 d511f180 d687bc17 dc1df850 ded97339 e9afcf9a ea32f347 f2829549".split(" ").collect();
@@ -379,7 +435,8 @@ fn evaluate_manual_solvers() {
     let correct: Vec<&String> = tasks
         .par_iter()
         .map(|(name, value)| {
-            let (task, ref_images) = parse_task(name, value);
+            let task = parse_task(name, value);
+            let ref_images = parse_ref_images(value);
             bar.inc(1);
             let state = solvers::SolverState::new(&task);
             let active_solvers = if debug.0 < 0 {
@@ -444,6 +501,7 @@ fn evaluate_manual_solvers() {
 }
 
 fn main() {
-    evaluate_automatic_solver();
+    // evaluate_automatic_solver();
     // evaluate_manual_solvers();
+    submit_with_automatic_solver();
 }
